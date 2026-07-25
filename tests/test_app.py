@@ -81,7 +81,33 @@ class TestPagesAndTasks:
 
         tasks = app.tasks()
 
-        assert len(tasks) == 1
+        assert len(tasks) == 2
         assert isinstance(tasks[0], App.Task)
         assert tasks[0].fn == mqtt_cls.return_value.tick
         assert tasks[0].touch_forces_execution is False
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_tasks_returns_timezone_update_as_an_app_task(self, mqtt_cls, page_cls):
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=mock.Mock())
+
+        tasks = app.tasks()
+
+        assert isinstance(tasks[1], App.Task)
+        assert tasks[1].fn == app._update_timezone
+        assert tasks[1].touch_forces_execution is False
+
+
+class TestUpdateTimezone:
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    @mock.patch("dashboard.app.eastern_utc_offset", return_value=-4)
+    def test_update_timezone_sets_os_utc_offset(self, offset_fn, mqtt_cls, page_cls):
+        window_manager = mock.Mock()
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+
+        app._update_timezone()
+
+        assert window_manager.os.utc_offset == -4

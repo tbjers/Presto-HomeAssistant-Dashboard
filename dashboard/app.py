@@ -9,6 +9,7 @@ from tmos_apps import App
 from dashboard.mqtt_client import DashboardMQTT
 from dashboard.page import DashboardPage
 from dashboard.state_store import DashboardState
+from dashboard.tz import eastern_utc_offset
 
 
 class DashboardApp(App):
@@ -20,8 +21,10 @@ class DashboardApp(App):
         self._state = DashboardState()
         self._mqtt = None
         self._page = None
+        self._os = None
 
     def setup(self, window_manager):
+        self._os = window_manager.os
         self._mqtt = DashboardMQTT(
             self._state,
             device_id=self._config.DEVICE_ID,
@@ -36,4 +39,13 @@ class DashboardApp(App):
         return [self._page]
 
     def tasks(self):
-        return [App.Task(self._mqtt.tick, execution_frequency=10, touch_forces_execution=False)]
+        return [
+            App.Task(self._mqtt.tick, execution_frequency=10, touch_forces_execution=False),
+            App.Task(self._update_timezone, execution_frequency=1 / 60, touch_forces_execution=False),
+        ]
+
+    def _update_timezone(self):
+        # Re-evaluated every ~minute (cheap: no I/O) so a device left
+        # running across a DST transition picks up the new offset
+        # without a reboot -- see dashboard/tz.py.
+        self._os.utc_offset = eastern_utc_offset()
