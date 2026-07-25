@@ -16,12 +16,11 @@ over MQTT via a Node-RED bridge. Visually modeled on
 
 ## How it fits together
 
-```
-Home Assistant  <-- node-red-contrib-home-assistant-websocket -->  Node-RED
-                                                                       |
-                                                                   MQTT (EMQX or any broker)
-                                                                       |
-                                                          Presto (this repo, MicroPython)
+```mermaid
+flowchart LR
+    HA["Home Assistant"] <-->|node-red-contrib-home-assistant-websocket| NR["Node-RED"]
+    NR <-->|MQTT| Broker["MQTT broker (EMQX or any)"]
+    Broker <-->|MQTT| Presto["Presto (this repo, MicroPython)"]
 ```
 
 Node-RED (running inside/alongside HA) subscribes to specific HA entity state changes, translates
