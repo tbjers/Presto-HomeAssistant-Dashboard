@@ -1,0 +1,31 @@
+[project]
+name = "presto"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mpremote>=1.28.0",
+    "pytest>=8.0.0",
+]
+# Note: rshell was removed — it pulls in an abandoned `pyreadline` 2.1 on Windows
+# that hard-crashes on import under Python 3.13 (collections.Callable was removed),
+# which in turn breaks `pytest` itself (its readline workaround only catches
+# ImportError, not this AttributeError). Nothing in this project's workflow uses
+# rshell — deployment is mpremote-based throughout (see scripts/deploy.ps1).
+
+[tool.pytest.ini_options]
+# Repo root holds the vendored tmos*.py / umqtt/ modules; tests import them
+# directly (e.g. `from tmos import Region`), same as device code does.
+pythonpath = ["."]
+# Without this, bare `pytest` (no path arg) auto-discovers across the whole
+# repo rootdir — including .venv — which hangs collection. Constrain it.
+testpaths = ["tests"]
+filterwarnings = [
+    # TmOS constructs a temporary coroutine to get the type; benign.
+    # Same suppression as upstream TmOS's own pyproject.toml.
+    'ignore:coroutine .+ was never awaited',
+]
