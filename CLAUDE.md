@@ -13,6 +13,8 @@ The device talks to Home Assistant **only over MQTT** (to an existing EMQX broke
 
 ## Licensing
 
+This repo is licensed **AGPL-3.0-or-later** (see `LICENSE`, and `license = "AGPL-3.0-or-later"` in `pyproject.toml`), chosen because of the compresto-derived content below — don't relicense to something more permissive (e.g. MIT) without accounting for that.
+
 [compresto](https://git.hack-hro.de/kmohrf/compresto) (Copyright (C) Konrad Mohrfeldt) is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0), not MIT like TmOS. No compresto source file has been vendored/copied into this repo (see `VENDORING.md`, which only lists TmOS and `umqtt.simple`), but several `dashboard/` modules port or adapt its design — exact color values, tile-grid sizing math, and the pub/sub state pattern — closely enough to be derivative work under AGPL-3.0. Each affected file carries a header comment pointing back here:
 
 - `dashboard/grid.py` — tile-grid sizing math
@@ -20,7 +22,7 @@ The device talks to Home Assistant **only over MQTT** (to an existing EMQX broke
 - `dashboard/state_store.py` — `on_update`/`_dispatch_event` pub/sub pattern
 - `dashboard/tiles.py` — `ValueTile`/`DateTimeTile` behavior
 
-This repo currently has no `LICENSE` file of its own (`pyproject.toml` doesn't declare one either). AGPL-3.0 is a strong copyleft license: if this project is ever distributed or its combined source published, the AGPL's terms likely extend to the whole combined work, not just the ported files. Don't add a permissive (e.g. MIT) `LICENSE` file to this repo without accounting for that — worth resolving deliberately (e.g. licensing the whole repo AGPL-3.0-compatible) rather than by default.
+`tmos*.py` and `umqtt/simple.py` are vendored from separately MIT-licensed upstreams (per `VENDORING.md`) and are NOT covered by this repo's own `LICENSE` — their original MIT terms still apply to those files.
 
 ## Tooling and commands
 
