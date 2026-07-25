@@ -64,6 +64,7 @@ mock_presto.Presto.return_value.touch = mock_touch.FT6236.return_value
 time.ticks_ms = lambda: time.monotonic_ns() // 1_000_000
 time.ticks_us = lambda: time.monotonic_ns() // 1000
 time.ticks_diff = lambda a, b: a - b
+time.ticks_add = lambda ticks, delta: ticks + delta
 time.sleep_ms = lambda s: time.sleep(s / 1000)
 
 sys.print_exception = mock.Mock()
