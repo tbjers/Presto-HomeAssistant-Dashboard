@@ -17,7 +17,7 @@ over MQTT via a Node-RED bridge. Visually modeled on
 ## How it fits together
 
 ```mermaid
-flowchart LR
+flowchart TD
     HA["Home Assistant"] <-->|node-red-contrib-home-assistant-websocket| NR["Node-RED"]
     NR <-->|MQTT| Broker["MQTT broker (EMQX or any)"]
     Broker <-->|MQTT| Presto["Presto (this repo, MicroPython)"]
