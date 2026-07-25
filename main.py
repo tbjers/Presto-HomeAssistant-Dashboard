@@ -17,6 +17,7 @@ from tmos_ui import WindowManager
 from tmos_apps import AppManager
 
 from dashboard.app import DashboardApp
+from dashboard.splash import show as show_splash
 from dashboard.theme import CompressoTheme
 
 os = OS(layers=1, full_res=True)
@@ -26,6 +27,13 @@ os = OS(layers=1, full_res=True)
 # Also raises dpi_scale_factor from 1 to 2, which is why dashboard/theme.py
 # pins padding/systray_height to explicit final pixel values rather than
 # relying on Theme's automatic dpi-scaling.
+
+show_splash(os)
+# Drawn straight to os.display before wifi/NTP connect (os.boot(wifi=True,
+# ...) below blocks synchronously for that) and before WindowManager/App
+# setup, so something appears immediately instead of a blank screen for
+# however long the network takes. DashboardPage's first tick overdraws it
+# once the run loop starts -- see dashboard/splash.py.
 
 wm = WindowManager(os, theme=CompressoTheme())
 apps = AppManager(wm)  # default systray_position -- systray stays visible
