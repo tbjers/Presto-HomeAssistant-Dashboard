@@ -56,7 +56,7 @@ SPACE_WIDTH = 3
 # (row_y_offset, characters_left_to_right) for each row of glyphs in the sheet.
 ROWS = [
     (1, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-    (8, "0123456789.,;:°%"),
+    (8, "0123456789.,;:°%-—/"),
 ]
 
 

@@ -108,6 +108,14 @@ def test_measure_text_gives_narrow_glyphs_less_width_than_wide_ones(mock_presto_
     assert narrow_width < wide_width
 
 
+def test_hyphen_em_dash_and_slash_are_mapped_glyphs(mock_presto_module):
+    # These were added after the font's first pass (a plain hyphen distinct
+    # from the em dash, and a forward slash for e.g. the systray's DD/MM
+    # date) -- lock in that they're real glyphs, not blank-but-advancing.
+    for char in ("-", "—", "/"):
+        assert char in font5x5.GLYPHS
+
+
 def test_text_draws_rectangles_for_a_known_glyph(mock_presto_module):
     theme = CompressoTheme()
     display = _mock_display()
@@ -126,7 +134,8 @@ def test_text_lowercases_are_uppercased_and_unmapped_chars_still_advance(mock_pr
     theme.setup(display, dpi_scale_factor=2)
 
     # lowercase "i" should render the same as "I" (one rect per row), and the
-    # trailing "/" (not in font5x5.GLYPHS) should be skipped without error.
-    theme.text(display, "i/", 0, 0, rel_scale=1)
+    # trailing "@" (not in font5x5.GLYPHS) should be skipped without error.
+    assert "@" not in font5x5.GLYPHS
+    theme.text(display, "i@", 0, 0, rel_scale=1)
 
     assert display.rectangle.call_count == font5x5.CELL_HEIGHT

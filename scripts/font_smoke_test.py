@@ -27,6 +27,7 @@ display.set_pen(theme.foreground_pen)
 theme.text(display, "07:09", 20, 20, rel_scale=3)
 theme.text(display, "ARBEITSZEIT", 20, 60, rel_scale=1)
 theme.text(display, "abc/xyz", 20, 90, rel_scale=1)
+theme.text(display, "12-34—56/78", 20, 110, rel_scale=1)
 
 w, h = theme.measure_text(display, "07:09", rel_scale=3)
 print("measure_text('07:09', rel_scale=3) =", (w, h), "-- expect (156, 30)")

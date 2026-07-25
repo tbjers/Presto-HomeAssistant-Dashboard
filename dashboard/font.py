@@ -19,9 +19,9 @@ faithfully reproduced the source art, but that art centers narrow glyphs
 right edge, so a fixed advance put uneven, oversized gaps around every
 narrow character. Lowercase input is folded to uppercase (the font only
 defines uppercase letters); characters with no glyph (space, lowercase-only
-symbols, "/") advance by SPACE_WIDTH + GLYPH_GAP but draw nothing, so
-callers don't need to pre-sanitize strings or worry about width becoming
-unpredictable.
+symbols, accented letters) advance by SPACE_WIDTH + GLYPH_GAP but draw
+nothing, so callers don't need to pre-sanitize strings or worry about width
+becoming unpredictable.
 """
 
 from dashboard import font5x5
