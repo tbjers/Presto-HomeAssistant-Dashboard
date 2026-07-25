@@ -16,7 +16,7 @@ dev = [
 # that hard-crashes on import under Python 3.13 (collections.Callable was removed),
 # which in turn breaks `pytest` itself (its readline workaround only catches
 # ImportError, not this AttributeError). Nothing in this project's workflow uses
-# rshell — deployment is mpremote-based throughout (see scripts/deploy.ps1).
+# rshell — deployment is mpremote-based throughout (see Taskfile.yml's deploy* tasks).
 
 [tool.pytest.ini_options]
 # Repo root holds the vendored tmos*.py / umqtt/ modules; tests import them

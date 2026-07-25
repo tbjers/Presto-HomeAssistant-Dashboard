@@ -1,0 +1,148 @@
+version: "3"
+
+# Requires https://taskfile.dev (`go-task`). All device I/O goes through
+# `mpremote` (see CLAUDE.md — rshell is deliberately not a dependency).
+# Run `task --list` for a summary.
+
+vars:
+  FRAMEWORK_FILES: tmos.py tmos_ui.py tmos_apps.py tmos_themes.py
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  sync:
+    desc: Install/update the host-side dev environment (mpremote, pytest)
+    cmds:
+      - uv sync
+
+  test:
+    desc: Run the host-side pytest suite (does not touch the device)
+    cmds:
+      - uv run pytest
+
+  devices:
+    desc: List connected serial devices
+    cmds:
+      - uv run mpremote connect list
+
+  # --- Deploying to the device -------------------------------------------
+  # Split into stages so any one of them can be re-run in isolation while
+  # iterating. `deploy` chains the stages that are safe to run unattended;
+  # it deliberately excludes secrets.py (see deploy:secrets below).
+
+  deploy:framework:
+    desc: Copy vendored TmOS + umqtt.simple to the device (excludes umqtt/__pycache__)
+    summary: |
+      mpremote's `cp -r` has no exclude flag, so umqtt/__pycache__ (host
+      bytecode cache) would tag along. Instead, non-recursive `cp` is given
+      the *.py glob directly (umqtt/ is flat — just simple.py) — but that
+      form requires the remote destination directory to already exist, hence
+      the `mkdir` first (ignored if it already exists from a prior deploy).
+    cmds:
+      - "uv run mpremote cp {{.FRAMEWORK_FILES}} :"
+      - cmd: uv run mpremote mkdir umqtt
+        ignore_error: true
+      - uv run mpremote cp umqtt/*.py :umqtt/
+
+  deploy:dashboard:
+    desc: Copy this project's dashboard/ package to the device (excludes __pycache__ and assets/)
+    summary: |
+      dashboard/'s __pycache__ (host bytecode cache) and assets/ (the
+      Aseprite font source PNG — a host-only input to `task font:flatten`)
+      are never needed on-device. mpremote's `cp -r` has no exclude flag, so
+      non-recursive `cp` is given the *.py glob directly instead (dashboard/
+      is a flat package — no real subpackages to lose) — but that form
+      requires the remote destination directory to already exist, hence the
+      `mkdir` first (ignored if it already exists from a prior deploy).
+    cmds:
+      - cmd: uv run mpremote mkdir dashboard
+        ignore_error: true
+      - uv run mpremote cp dashboard/*.py :dashboard/
+
+  deploy:config:
+    desc: Copy config.py (tile/entity registry) to the device
+    cmds:
+      - "uv run mpremote cp config.py :"
+
+  deploy:secrets:
+    desc: Copy local secrets.py to the device (only if you mean to overwrite it)
+    summary: |
+      The device already has its own secrets.py from prior experimentation
+      (WIFI_SSID/WIFI_PASSWORD already set) that is intentionally not mirrored
+      in this repo. Only run this if your local secrets.py is meant to replace
+      it — otherwise add MQTT_* fields to the on-device file directly instead.
+      See CLAUDE.md's "Tooling and commands" section.
+    cmds:
+      - "uv run mpremote cp secrets.py :"
+
+  secrets:pull:
+    desc: Copy the device's current secrets.py down into the local repo (overwrites local file)
+    summary: |
+      Pulls the on-device secrets.py (WIFI_*/MQTT_* — whatever it currently
+      has) down to ./secrets.py, overwriting the local copy if one exists.
+      secrets.py is gitignored, so this is just for local inspection/backup —
+      it will never get committed. Useful for seeding a local secrets.py from
+      the device's existing credentials rather than starting from
+      secrets.example.py.
+    cmds:
+      - "uv run mpremote cp :secrets.py secrets.py"
+
+  deploy:main:
+    desc: Copy main.py to the device and reset (persists as the boot entrypoint)
+    cmds:
+      - "uv run mpremote cp main.py :"
+      - task: reset
+
+  deploy:
+    desc: Full deploy (framework + dashboard + config + main.py), excluding secrets.py
+    cmds:
+      - task: deploy:framework
+      - task: deploy:dashboard
+      - task: deploy:config
+      - task: deploy:main
+
+  reset:
+    desc: Soft-reset the device (re-runs whatever main.py is currently on flash)
+    cmds:
+      - uv run mpremote reset
+
+  # --- Trying it without flashing / on-device smoke tests -----------------
+  # None of these persist to flash or touch main.py.
+
+  preview:
+    desc: Run the grid/theme/tile preview build on-device against a fake MQTT stand-in
+    cmds:
+      - uv run mpremote run scripts/preview_main.py
+
+  smoke:device:
+    desc: Minimal on-device smoke test (TmOS boot + dashboard package imports)
+    cmds:
+      - uv run mpremote run scripts/device_smoke_test.py
+
+  smoke:font:
+    desc: On-device font rendering smoke test (dashboard.font5x5/CompressoTheme.text)
+    cmds:
+      - uv run mpremote run scripts/font_smoke_test.py
+
+  smoke:mqtt:
+    desc: One-off MQTT connectivity probe against the real broker using secrets.py
+    cmds:
+      - uv run mpremote run scripts/mqtt_smoke_test.py
+
+  # --- Host-only codegen tools ---------------------------------------------
+  # Neither of these is a project dependency or runs on-device; both pull in
+  # an extra library ad hoc via `uv run --with`.
+
+  font:flatten:
+    desc: Regenerate dashboard/font5x5.py from dashboard/assets/font5x5_source.png
+    cmds:
+      - uv run --with pillow python scripts/flatten_font.py
+
+  icon:flatten:
+    desc: Regenerate dashboard/icons.py flattened point data from the mdi SVG path source
+    cmds:
+      - uv run --with svgpathtools python scripts/flatten_icon.py
