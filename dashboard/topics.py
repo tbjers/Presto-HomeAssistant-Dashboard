@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 MQTT topic/payload contract — the single source of truth for the wire format
 between this firmware and the Node-RED bridge. Both mqtt_client.py and

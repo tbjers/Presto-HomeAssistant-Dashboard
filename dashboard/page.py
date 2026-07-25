@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 DashboardPage(Page) -- wires config.TILES entries into grid regions, tile
 instances, and state_store subscriptions.

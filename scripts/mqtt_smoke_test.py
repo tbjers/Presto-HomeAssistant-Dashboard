@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 One-off connectivity probe: connects to the EMQX broker using secrets.py,
 subscribes to presto/+/+/state, and prints anything received within a short

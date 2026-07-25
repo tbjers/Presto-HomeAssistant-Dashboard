@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 Preview build -- NOT main.py. Confirms grid layout, theme, and tile
 interactivity end-to-end on real hardware without a real MQTT broker:

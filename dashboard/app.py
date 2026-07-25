@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 DashboardApp(App) -- top-level TmOS App wiring DashboardState, DashboardMQTT,
 and DashboardPage together. See dashboard.page for why DashboardPage isn't a

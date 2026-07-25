@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 CompressoTheme(DefaultTheme) — a TmOS Theme subclass giving the systray and
 any other native TmOS chrome a look consistent with the tile grid, instead

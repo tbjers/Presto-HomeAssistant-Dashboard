@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 # ValueTile/DateTimeTile behavior ported from compresto
 # (https://git.hack-hro.de/kmohrf/compresto), Copyright (C) Konrad Mohrfeldt,
 # licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).

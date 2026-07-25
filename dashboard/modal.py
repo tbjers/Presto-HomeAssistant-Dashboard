@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 Detail modals for tiles needing more than a toggle (v1: dimmable-light
 brightness).

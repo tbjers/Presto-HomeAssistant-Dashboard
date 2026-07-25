@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 DashboardMQTT -- owns umqtt.simple.MQTTClient's connection lifecycle
 (connect, reconnect/backoff, LWT, wildcard subscribe) so app.py/page.py

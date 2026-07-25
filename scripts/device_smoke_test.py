@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026  Torgny Bjers
+
 """
 Minimal on-device smoke test — NOT the real main.py (which doesn't exist
 yet). Run via `mpremote run` (does not persist to flash) after copying
