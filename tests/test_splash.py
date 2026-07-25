@@ -7,10 +7,11 @@ can verify the drawing calls happen in the right shape: the screen gets
 cleared, the icon polygon is built from all of
 icons.HOME_ASSISTANT_OUTLINE plus one circle per icons.HOME_ASSISTANT_DOTS
 entry, the label is drawn, and the display is flipped exactly once at the
-end. Confirmed visually correct (icon shape, label fit, backlight-on by
-default, no crash from a second concurrent PicoVector instance once
-Theme.setup() creates its own) via `mpremote run` against real hardware
-when this was added.
+end. Icon rendering (shape, backlight-on by default, no crash from a second
+concurrent PicoVector instance once Theme.setup() creates its own) was
+confirmed visually correct via `mpremote run` against real hardware when
+this was added; label rendering needs the same on-device confirmation again
+since it switched from bitmap8 to dashboard.font5x5 (see dashboard/theme.py).
 """
 
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ from unittest import mock
 import picovector
 
 from dashboard.icons import HOME_ASSISTANT_DOTS, HOME_ASSISTANT_OUTLINE
-from dashboard.splash import _LABEL, show
+from dashboard.splash import show
 
 
 def _os(mock_presto_module):
@@ -27,7 +28,6 @@ def _os(mock_presto_module):
     display.reset_mock()
     display.get_bounds.return_value = (480, 480)
     display.create_pen.side_effect = lambda *rgb: rgb
-    display.measure_text.return_value = 120
 
     # Polygon()/PicoVector() are Mock classes shared across the whole test
     # session (see tests/conftest.py) -- reset their recorded calls so
@@ -49,11 +49,13 @@ class TestShow:
         os_.update_display.assert_called_once_with()
 
     def test_draws_label_text(self, mock_presto_module):
+        # font5x5 is rendered via display.rectangle(), not display.text() --
+        # see dashboard/font.py. A non-trivial rect count for a 15-char
+        # label ("Home Assistant") is evidence glyphs were actually blitted.
         os_ = _os(mock_presto_module)
         show(os_)
 
-        texts = [call.args[0] for call in os_.display.text.call_args_list]
-        assert _LABEL in texts
+        assert os_.display.rectangle.call_count > 10
 
     def test_builds_icon_from_outline_and_dots(self, mock_presto_module):
         os_ = _os(mock_presto_module)

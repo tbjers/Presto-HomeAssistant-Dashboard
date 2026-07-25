@@ -18,15 +18,15 @@ drawing tiles).
 
 from picovector import ANTIALIAS_BEST, PicoVector, Polygon, Transform
 
-from dashboard import palette
+from dashboard import font, font5x5, palette
 from dashboard.icons import HOME_ASSISTANT_DOTS, HOME_ASSISTANT_OUTLINE, HOME_ASSISTANT_VIEWBOX
 
 _ICON_SIZE = 200  # on-screen icon size, in pixels
 _ICON_COLOR = (17, 189, 242)  # Home Assistant brand blue, #11bdf2 -- not in
 # dashboard.palette, which is compresto's verbatim-ported palette rather
 # than a place for brand-specific one-offs.
-_LABEL = "Home Assistant"
-_LABEL_SCALE = 4
+_LABEL = "Home Assistant"  # font5x5 has no lowercase, draw_text() upper()s it
+_LABEL_SCALE = 6
 _LABEL_GAP = 28  # space between icon and label
 
 
@@ -42,20 +42,20 @@ def show(os):
     display.set_pen(background_pen)
     display.clear()
 
-    label_height = 8 * _LABEL_SCALE  # bitmap8's base glyph height is 8px
+    label_height = font5x5.CELL_HEIGHT * _LABEL_SCALE
     block_height = _ICON_SIZE + _LABEL_GAP + label_height
     block_top = (height - block_height) // 2
 
     _draw_icon(display, x=(width - _ICON_SIZE) // 2, y=block_top, pen=icon_pen)
 
-    display.set_font("bitmap8")
     display.set_pen(label_pen)
-    label_width = display.measure_text(_LABEL, _LABEL_SCALE)
-    display.text(
+    label_width, _ = font.measure_text(_LABEL, _LABEL_SCALE)
+    font.draw_text(
+        display,
         _LABEL,
         (width - label_width) // 2,
         block_top + _ICON_SIZE + _LABEL_GAP,
-        scale=_LABEL_SCALE,
+        _LABEL_SCALE,
     )
 
     os.update_display()
