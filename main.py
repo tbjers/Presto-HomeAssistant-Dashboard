@@ -9,6 +9,8 @@ See scripts/preview_main.py for a no-broker, no-flash sanity check of the
 grid/theme/tile layer alone (`mpremote run scripts/preview_main.py`).
 """
 
+import ntptime
+
 import config
 import secrets
 
@@ -19,6 +21,12 @@ from tmos_apps import AppManager
 from dashboard.app import DashboardApp
 from dashboard.splash import show as show_splash
 from dashboard.theme import CompressoTheme
+
+ntptime.host = "time1.google.com"
+# ntptime's own default, pool.ntp.org, timed out repeatedly on this network
+# (tmos.py's __setup_network already docs "we seem to get timeouts
+# frequently" for that host). Must be set before os.boot(use_ntp=True)
+# below, which is what actually calls ntptime.settime().
 
 os = OS(layers=1, full_res=True)
 # layers=1: required for partial_update, which only works with 1 layer.
