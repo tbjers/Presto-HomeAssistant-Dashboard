@@ -86,3 +86,20 @@ def color_for_thresholds(value, thresholds, default=None):
         if upper_bound is None or value < upper_bound:
             return color
     return thresholds[-1][1]
+
+
+def lerp_color(a: tuple, b: tuple, fraction: float) -> tuple:
+    """
+    Linearly interpolates between two (r, g, b) tuples. fraction=0 -> a,
+    fraction=1 -> b, clamped outside [0, 1].
+
+    Callers animating with this (e.g. a tile fade) should quantize
+    `fraction` to a small fixed number of steps rather than using a
+    continuously-varying value -- every distinct rgb tuple this produces
+    becomes a permanent PenCache entry (display.create_pen() is never
+    freed), and PicoGraphics itself may have a hard limit on distinct
+    pens. A handful of fixed steps per animation is fine; one new pen per
+    frame, forever, is not.
+    """
+    fraction = max(0.0, min(1.0, fraction))
+    return tuple(round(ac + (bc - ac) * fraction) for ac, bc in zip(a, b))

@@ -4,6 +4,8 @@ Tests for dashboard.tiles.
 
 from unittest import mock
 
+import pytest
+
 from tmos import Region
 
 from dashboard import palette, topics
@@ -190,19 +192,45 @@ class TestSceneButtonTile:
             topics.set_topic("scene", "good_night"), topics.format_scene_command()
         )
 
-    def test_flash_active_immediately_after_trigger(self, mock_touch_factory):
+    def test_flash_fraction_is_full_immediately_after_trigger(self, mock_touch_factory):
         tile = SceneButtonTile(_region(), _pens(), "scene", "good_night", "GOOD NIGHT", mock.Mock())
         _press_and_release(tile, mock_touch_factory)
-        assert tile._is_flashing() is True
+        assert tile._flash_fraction() == 1.0
 
-    def test_flash_expires_after_duration(self, mock_touch_factory):
+    def test_flash_fraction_decays_partway_through(self, mock_touch_factory):
+        tile = SceneButtonTile(_region(), _pens(), "scene", "good_night", "GOOD NIGHT", mock.Mock())
+        _press_and_release(tile, mock_touch_factory)
+
+        # Simulate half the flash duration passing without a real sleep.
+        tile._flash_started_at -= SceneButtonTile.FLASH_DURATION_MS // 2
+
+        assert tile._flash_fraction() == 0.5
+
+    def test_flash_fraction_is_quantized_to_flash_steps(self, mock_touch_factory):
+        tile = SceneButtonTile(_region(), _pens(), "scene", "good_night", "GOOD NIGHT", mock.Mock())
+        _press_and_release(tile, mock_touch_factory)
+
+        # An arbitrary elapsed time should still land on one of the fixed
+        # quantized steps, not a continuously-varying value (see
+        # palette.lerp_color's docstring for why: unbounded distinct pens).
+        tile._flash_started_at -= 130  # not a clean fraction of FLASH_DURATION_MS
+
+        fraction = tile._flash_fraction()
+        step = 1.0 / SceneButtonTile.FLASH_STEPS
+        assert fraction == pytest.approx(round(fraction / step) * step)
+
+    def test_flash_fraction_expires_after_duration(self, mock_touch_factory):
         tile = SceneButtonTile(_region(), _pens(), "scene", "good_night", "GOOD NIGHT", mock.Mock())
         _press_and_release(tile, mock_touch_factory)
 
         # Simulate time passing without a real sleep.
         tile._flash_started_at -= SceneButtonTile.FLASH_DURATION_MS + 1
 
-        assert tile._is_flashing() is False
+        assert tile._flash_fraction() == 0.0
+
+    def test_flash_fraction_is_zero_when_never_triggered(self):
+        tile = SceneButtonTile(_region(), _pens(), "scene", "good_night", "GOOD NIGHT", mock.Mock())
+        assert tile._flash_fraction() == 0.0
 
     def test_draw_reflects_flash_state(self):
         display = mock.Mock()

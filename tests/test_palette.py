@@ -7,7 +7,24 @@ from unittest import mock
 import pytest
 
 from dashboard import palette
-from dashboard.palette import PenCache, color_for_thresholds
+from dashboard.palette import PenCache, color_for_thresholds, lerp_color
+
+
+class TestLerpColor:
+    def test_fraction_zero_returns_a(self):
+        assert lerp_color((0, 0, 0), (255, 255, 255), 0.0) == (0, 0, 0)
+
+    def test_fraction_one_returns_b(self):
+        assert lerp_color((0, 0, 0), (255, 255, 255), 1.0) == (255, 255, 255)
+
+    def test_fraction_half_is_midpoint(self):
+        assert lerp_color((0, 0, 0), (100, 200, 50), 0.5) == (50, 100, 25)
+
+    def test_fraction_is_clamped_below_zero(self):
+        assert lerp_color((10, 10, 10), (200, 200, 200), -1.0) == (10, 10, 10)
+
+    def test_fraction_is_clamped_above_one(self):
+        assert lerp_color((10, 10, 10), (200, 200, 200), 2.0) == (200, 200, 200)
 
 
 def test_color_constants_match_compresto_exactly():

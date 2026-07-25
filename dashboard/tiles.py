@@ -197,20 +197,30 @@ class SceneButtonTile(Tile, Control):
         self._mqtt.publish(topics.set_topic(self.domain, self.slug), topics.format_scene_command())
         self._flash_started_at = time.ticks_ms()
 
-    def _is_flashing(self):
+    # Number of discrete steps the fade is quantized to. Keeps the number of
+    # distinct interpolated pens PenCache will ever create for this tile
+    # bounded (FLASH_STEPS + 1 per color, forever) rather than one new pen
+    # per redraw tick -- see palette.lerp_color's docstring for why that
+    # matters (pens are never freed, and PicoGraphics may cap distinct pens).
+    FLASH_STEPS = 4
+
+    def _flash_fraction(self):
+        """1.0 = just triggered (full amber), decaying to 0.0 (gray) over
+        FLASH_DURATION_MS, quantized to FLASH_STEPS discrete values."""
         if self._flash_started_at is None:
-            return False
+            return 0.0
         elapsed = time.ticks_diff(time.ticks_ms(), self._flash_started_at)
         if elapsed >= self.FLASH_DURATION_MS:
             self._flash_started_at = None
-            return False
-        return True
+            return 0.0
+        raw_fraction = 1.0 - (elapsed / self.FLASH_DURATION_MS)
+        return round(raw_fraction * self.FLASH_STEPS) / self.FLASH_STEPS
 
     def draw(self, display, theme):
         x, y, width, height = self.region
-        flashing = self._is_flashing()
-        bg = palette.AMBER_400 if flashing else palette.GRAY_900
-        label_color = palette.AMBER_900 if flashing else palette.GRAY_600
+        fraction = self._flash_fraction()
+        bg = palette.lerp_color(palette.GRAY_900, palette.AMBER_400, fraction)
+        label_color = palette.lerp_color(palette.GRAY_600, palette.AMBER_900, fraction)
 
         _draw_bg(display, self._pens, self.region, bg)
         display.set_pen(self._pens.get(label_color))
