@@ -78,6 +78,12 @@ def _resolve_thresholds(thresholds):
 
 
 class DashboardPage(Page):
+    # Page.title defaults to the literal string "Page" -- shown by TmOS's
+    # own systray page-selector button (see tmos_ui.py's SystrayPageButton),
+    # not anything font/theme-related. DashboardApp only ever exposes this
+    # one page, so the button just needs a real label.
+    title = "Dashboard"
+
     # 10Hz, not the plan draft's 4 -- confirmed on real hardware (see
     # main.py's PreviewPage) that SceneButtonTile's 4-step/400ms fade needs
     # roughly this rate to render as a visible fade rather than one abrupt

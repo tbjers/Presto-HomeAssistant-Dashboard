@@ -69,3 +69,44 @@ class CompressoTheme(DefaultTheme):
 
     def text(self, display, text, x, y, *args, rel_scale=1.0, **kwargs):
         font.draw_text(display, text, x, y, self.text_scale(rel_scale))
+
+    def draw_systray(self, display, region, adjoined):
+        # DefaultTheme only draws top/bottom border lines across the full
+        # strip -- there's no left/right edge closing the box. The rightmost
+        # page button's own solid fill happens to reach the screen's right
+        # edge, so that side looks closed by coincidence, but the leading
+        # app-switcher accessory has no fill of its own (just its hamburger
+        # bars on the plain strip background), so the left edge read as an
+        # open/"clipped" border. Add both verticals so the box is closed on
+        # every side regardless of what's docked at either end.
+        super().draw_systray(display, region, adjoined)
+        display.set_pen(self.foreground_pen)
+        right_x = region.x + region.width - 1
+        bottom_y = region.y + region.height - 1
+        display.line(region.x, region.y, region.x, bottom_y)
+        display.line(right_x, region.y, right_x, bottom_y)
+
+    def draw_app_switcher_button(self, display, region, is_pressed):
+        # Copy of DefaultTheme.draw_app_switcher_button (tmos_ui.py) with an
+        # extra 1px of left inset. The left border draw_systray() now paints
+        # sits on this button's own leftmost column, which used to be plain
+        # background -- so the hamburger bars ended up 1px closer to that
+        # border than to the DASHBOARD button's edge on the right (confirmed
+        # by pixel-measuring a photo: ~7 device px left vs ~8 right). The
+        # right side has no equivalent border baked into ITS margin (the
+        # DASHBOARD button's fill starts immediately after, not within, the
+        # gap), so only the left inset needs the extra pixel.
+        num_bars = 3
+        spacing = 3 * self.dpi_scale_factor
+        left_inset = spacing + 1
+        v_inset = spacing
+        x = region.x + left_inset
+        y = region.y + spacing + v_inset
+        width = region.width - left_inset - spacing
+        available_height = region.height - spacing - v_inset - v_inset - spacing
+        total_bar_height = available_height - (spacing * (num_bars - 1))
+        bar_height = int(round(total_bar_height / num_bars))
+        display.set_pen(self.background_pen if is_pressed else self.foreground_pen)
+        for _ in range(num_bars):
+            display.rectangle(x, y, width, bar_height)
+            y += bar_height + spacing

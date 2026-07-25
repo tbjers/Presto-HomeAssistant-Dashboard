@@ -4,6 +4,8 @@ Tests for dashboard.theme.CompressoTheme.
 
 from unittest import mock
 
+from tmos import Region
+
 from dashboard import font5x5, grid, palette
 from dashboard.theme import CompressoTheme
 
@@ -13,6 +15,7 @@ def _mock_display():
     display.create_pen = mock.Mock(side_effect=lambda *rgb: rgb)  # identity, for asserting later
     display.set_font = mock.Mock()
     display.rectangle = mock.Mock()
+    display.line = mock.Mock()
     return display
 
 
@@ -114,6 +117,48 @@ def test_hyphen_em_dash_and_slash_are_mapped_glyphs(mock_presto_module):
     # date) -- lock in that they're real glyphs, not blank-but-advancing.
     for char in ("-", "—", "/"):
         assert char in font5x5.GLYPHS
+
+
+def test_draw_systray_closes_left_and_right_borders(mock_presto_module):
+    # Regression check for the systray's left edge reading as an open/
+    # "clipped" border: DefaultTheme.draw_systray only draws top/bottom
+    # lines, so the leading app-switcher accessory (which has no fill of
+    # its own) had no border on its left side at all.
+    theme = CompressoTheme()
+    display = _mock_display()
+    theme.setup(display, dpi_scale_factor=2)
+
+    region = Region(0, 400, 480, 53)
+    theme.draw_systray(display, region, adjoined=0)
+
+    left_x = region.x
+    right_x = region.x + region.width - 1
+    bottom_y = region.y + region.height - 1
+    display.line.assert_any_call(left_x, region.y, left_x, bottom_y)
+    display.line.assert_any_call(right_x, region.y, right_x, bottom_y)
+
+
+def test_draw_app_switcher_button_gives_1px_more_left_inset_than_right(mock_presto_module):
+    # Regression check for the hamburger icon reading as off-center once
+    # draw_systray()'s new left border claimed what used to be pure margin
+    # on that side only (measured on real hardware via photo pixel-scan:
+    # ~7 device px left vs ~8 right). Fixed by adding 1px more left inset
+    # than right -- verify bar x/width reflect that asymmetric inset rather
+    # than DefaultTheme's originally-symmetric one.
+    theme = CompressoTheme()
+    display = _mock_display()
+    theme.setup(display, dpi_scale_factor=2)
+
+    region = Region(0, 400, 53, 53)
+    theme.draw_app_switcher_button(display, region, is_pressed=False)
+
+    spacing = 3 * theme.dpi_scale_factor
+    expected_x = region.x + spacing + 1
+    expected_width = region.width - (spacing + 1) - spacing
+    for call in display.rectangle.call_args_list:
+        x, _, width, _ = call.args
+        assert x == expected_x
+        assert width == expected_width
 
 
 def test_text_draws_rectangles_for_a_known_glyph(mock_presto_module):

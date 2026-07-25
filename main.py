@@ -43,8 +43,11 @@ show_splash(os)
 # however long the network takes. DashboardPage's first tick overdraws it
 # once the run loop starts -- see dashboard/splash.py.
 
-wm = WindowManager(os, theme=CompressoTheme())
-apps = AppManager(wm)  # default systray_position -- systray stays visible
+wm = WindowManager(os, theme=CompressoTheme(), systray_visible=True)
+# systray_visible defaults to False -- AppManager below only registers the
+# app-switcher button as systray *content*, it never flips this flag itself,
+# so it has to be set explicitly here or the systray never renders at all.
+apps = AppManager(wm)  # default systray_position -- app-switcher accessory on the leading edge
 
 dash_app = DashboardApp(config, secrets)
 apps.add_app(dash_app, make_current=True)
