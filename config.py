@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """
 Declarative tile/entity registry -- non-secret, committed. Single source of
 truth for what the dashboard displays and where; dashboard.mqtt_client's

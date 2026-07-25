@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """
 Boot entry point. Wires config.py (tile/entity registry) + secrets.py
 (WiFi/MQTT credentials) into DashboardApp and starts TmOS's run loop.
