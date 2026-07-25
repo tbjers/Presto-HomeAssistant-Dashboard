@@ -43,6 +43,17 @@ AMBER_600 = (217, 119, 6)
 AMBER_800 = (146, 64, 14)
 AMBER_900 = (120, 53, 15)
 
+# "Scale" triples: (background, value_text, description_text), ported
+# directly from compresto's TemperatureTile/ValueTile pattern -- a bright,
+# saturated background needs a dark color of the same family for text to
+# stay legible on top of it, not a flat neutral like GRAY_200. NEUTRAL_SCALE
+# is compresto's ValueTile default (no threshold match / value is None).
+NEUTRAL_SCALE = (GRAY_900, GRAY_200, GRAY_600)
+SKY_SCALE = (SKY_400, SKY_900, SKY_600)
+GREEN_SCALE = (GREEN_400, GREEN_900, GREEN_600)
+AMBER_SCALE = (AMBER_400, AMBER_900, AMBER_600)
+ROSE_SCALE = (ROSE_400, ROSE_900, ROSE_600)
+
 
 class PenCache:
     """Lazily creates and caches display.create_pen(*rgb) results, keyed by
@@ -66,9 +77,10 @@ def color_for_thresholds(value, thresholds, default=None):
     `(upper_bound, color)` pairs, e.g. mirroring compresto's TemperatureTile:
         [(18, SKY_400), (25, GREEN_400), (28, AMBER_400), (None, ROSE_400)]
     Returns the color for the first entry whose upper_bound is None or
-    value < upper_bound. Returns `default` if value is None.
+    value < upper_bound. Returns `default` if value is None or thresholds
+    is empty.
     """
-    if value is None:
+    if value is None or not thresholds:
         return default
     for upper_bound, color in thresholds:
         if upper_bound is None or value < upper_bound:

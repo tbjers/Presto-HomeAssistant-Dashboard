@@ -24,6 +24,14 @@ def test_color_constants_match_compresto_exactly():
     assert palette.BLACK == (0, 0, 0)
 
 
+def test_scale_triples_match_compresto_exactly():
+    assert palette.NEUTRAL_SCALE == (palette.GRAY_900, palette.GRAY_200, palette.GRAY_600)
+    assert palette.SKY_SCALE == (palette.SKY_400, palette.SKY_900, palette.SKY_600)
+    assert palette.GREEN_SCALE == (palette.GREEN_400, palette.GREEN_900, palette.GREEN_600)
+    assert palette.AMBER_SCALE == (palette.AMBER_400, palette.AMBER_900, palette.AMBER_600)
+    assert palette.ROSE_SCALE == (palette.ROSE_400, palette.ROSE_900, palette.ROSE_600)
+
+
 class TestPenCache:
     def test_creates_pen_on_first_request(self):
         display = mock.Mock()
@@ -67,6 +75,9 @@ class TestColorForThresholds:
 
     def test_returns_default_when_value_is_none(self):
         assert color_for_thresholds(None, self.THRESHOLDS, default="fallback") == "fallback"
+
+    def test_returns_default_when_thresholds_is_empty(self):
+        assert color_for_thresholds(21, [], default="fallback") == "fallback"
 
     @pytest.mark.parametrize(
         "value,expected",
