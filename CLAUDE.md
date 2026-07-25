@@ -10,7 +10,6 @@ Code in this repo runs on-device under MicroPython, not CPython — even though 
 
 The device talks to Home Assistant **only over MQTT** (to an existing EMQX broker), never directly to HA's REST/WebSocket API — Node-RED (already running inside HA) bridges HA entities to/from a fixed MQTT topic contract defined in `dashboard/topics.py`. The firmware has no HA auth token and doesn't know HA entity IDs, only MQTT topic slugs.
 
-
 ## Licensing
 
 This repo is licensed **AGPL-3.0-or-later** (see `LICENSE`, and `license = "AGPL-3.0-or-later"` in `pyproject.toml`), chosen because of the compresto-derived content below — don't relicense to something more permissive (e.g. MIT) without accounting for that.
