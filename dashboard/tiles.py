@@ -1,3 +1,8 @@
+# ValueTile/DateTimeTile behavior ported from compresto
+# (https://git.hack-hro.de/kmohrf/compresto), Copyright (C) Konrad Mohrfeldt,
+# licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+# See the "Licensing" section of CLAUDE.md.
+
 """
 Tile primitives on top of TmOS's Region/Control model.
 

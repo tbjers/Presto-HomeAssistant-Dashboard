@@ -1,3 +1,8 @@
+# Color constants ported verbatim from compresto
+# (https://git.hack-hro.de/kmohrf/compresto), Copyright (C) Konrad Mohrfeldt,
+# licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+# See the "Licensing" section of CLAUDE.md.
+
 """
 Color palette, ported verbatim (same rgb values) from compresto's ui.py, plus
 a PenCache for turning these plain (r, g, b) tuples into real PicoGraphics

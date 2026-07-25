@@ -1,3 +1,8 @@
+# Layout math and constants adapted from compresto
+# (https://git.hack-hro.de/kmohrf/compresto), Copyright (C) Konrad Mohrfeldt,
+# licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+# See the "Licensing" section of CLAUDE.md.
+
 """
 Tile-grid math, ported from compresto's WIDTH/GAP/TILE_SIZE/size() layout,
 generalized to operate on a TmOS Region instead of a hardcoded screen size so
