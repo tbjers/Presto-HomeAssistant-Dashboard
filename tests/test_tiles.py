@@ -75,13 +75,15 @@ class TestValueTile:
     def test_draw_renders_value_and_label_text(self):
         display = mock.Mock()
         theme = mock.Mock(padding=8)
+        theme.measure_text.return_value = (20, 10)
         tile = ValueTile(_region(), palette.PenCache(display), "OFFICE", unit="C", initial_value=21)
 
         tile.draw(display, theme)
 
         rendered = [c.args[1] for c in theme.text.call_args_list]
         assert "21" in rendered
-        assert "OFFICE C" in rendered
+        assert "OFFICE" in rendered
+        assert "°C" in rendered
 
 
 class TestDateTimeTile:

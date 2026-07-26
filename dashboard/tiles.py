@@ -86,9 +86,17 @@ class ValueTile(Tile):
             display, value_text, x + theme.padding, y + theme.padding, rel_scale=self.value_rel_scale
         )
 
-        label_text = "{} {}".format(self.label, self.unit).strip() if self.unit else self.label
+        if self.unit:
+            value_width, _ = theme.measure_text(display, value_text, rel_scale=self.value_rel_scale)
+            unit_text = "°" + self.unit
+            display.set_pen(self._pens.get(desc_color))
+            theme.text(
+                display, unit_text, x + value_width + 4, y + theme.padding,
+                rel_scale=1,
+            )
+
         display.set_pen(self._pens.get(desc_color))
-        theme.text(display, label_text, x + theme.padding, y + height - theme.padding - 10, rel_scale=1)
+        theme.text(display, self.label, x + theme.padding, y + height - theme.padding - 10, rel_scale=1)
 
 
 class DateTimeTile(Tile):

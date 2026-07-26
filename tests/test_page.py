@@ -133,6 +133,7 @@ class TestDashboardPageDrawAndTeardown:
     def test_draw_clears_display_and_draws_plain_tiles_only(self):
         display = mock.Mock()
         theme = mock.Mock(padding=8)
+        theme.measure_text.return_value = (20, 10)
         page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
 
