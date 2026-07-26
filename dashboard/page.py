@@ -2,7 +2,7 @@
 # Copyright (C) 2026  Torgny Bjers
 
 """
-DashboardPage(Page) -- wires config.TILES entries into grid regions, tile
+DashboardPage(Page) -- wires one screen's tile entries into grid regions, tile
 instances, and state_store subscriptions.
 
 Not a StaticPage: confirmed via real-hardware testing on the preview build
@@ -78,12 +78,6 @@ def _resolve_thresholds(thresholds):
 
 
 class DashboardPage(Page):
-    # Page.title defaults to the literal string "Page" -- shown by TmOS's
-    # own systray page-selector button (see tmos_ui.py's SystrayPageButton),
-    # not anything font/theme-related. DashboardApp only ever exposes this
-    # one page, so the button just needs a real label.
-    title = "Dashboard"
-
     # 10Hz, not the plan draft's 4 -- confirmed on real hardware (see
     # main.py's PreviewPage) that SceneButtonTile's 4-step/400ms fade needs
     # roughly this rate to render as a visible fade rather than one abrupt
@@ -91,8 +85,14 @@ class DashboardPage(Page):
     # this frequency ("Yes, it fades now").
     execution_frequency = 10
 
-    def __init__(self, tiles_config, state, mqtt):
+    def __init__(self, title, tiles_config, state, mqtt):
         super().__init__()
+        # Page.title defaults to the literal string "Page" -- shown by
+        # TmOS's own systray page-selector button (see tmos_ui.py's
+        # SystrayPageButton). DashboardApp can expose more than one screen,
+        # so each instance needs its own label rather than a shared class
+        # attribute.
+        self.title = title
         self._tiles_config = tiles_config
         self._state = state
         self._mqtt = mqtt

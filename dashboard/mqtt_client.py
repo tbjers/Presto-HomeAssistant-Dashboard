@@ -81,6 +81,7 @@ class DashboardMQTT:
             )
             self._client.subscribe(topics.state_wildcard(), qos=0)
             self._client.subscribe(topics.BRIDGE_STATUS_TOPIC, qos=0)
+            self._client.subscribe(topics.device_config_topic(self._device_id), qos=0)
         except OSError:
             self._schedule_retry()
             return
@@ -103,6 +104,12 @@ class DashboardMQTT:
             online = topics.parse_availability_payload(payload)
             if online is not None:
                 self._state.set("bridge/status", online)
+            return
+
+        if topic == topics.device_config_topic(self._device_id):
+            config = topics.parse_config_payload(payload)
+            if config is not None:
+                self._state.set("device/config", config)
             return
 
         parsed = topics.parse_topic(topic)

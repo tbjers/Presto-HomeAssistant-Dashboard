@@ -14,8 +14,13 @@ from tmos_apps import App
 from dashboard.app import DashboardApp
 
 
-def _config():
-    return SimpleNamespace(DEVICE_ID="presto-office", TILES=[{"type": "datetime", "col": 0, "row": 0}])
+def _config(**overrides):
+    base = dict(
+        DEVICE_ID="presto-office",
+        DEFAULT_SCREENS=[{"title": "Dashboard", "tiles": [{"type": "datetime", "col": 0, "row": 0}]}],
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
 
 
 def _secrets(**overrides):
@@ -43,12 +48,14 @@ class TestSetup:
 
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
-    def test_setup_constructs_page_with_tiles_state_and_mqtt(self, mqtt_cls, page_cls):
+    def test_setup_constructs_a_page_per_default_screen(self, mqtt_cls, page_cls):
         config = _config()
         app = DashboardApp(config, _secrets())
         app.setup(window_manager=mock.Mock())
 
-        page_cls.assert_called_once_with(config.TILES, app._state, mqtt_cls.return_value)
+        page_cls.assert_called_once_with(
+            "Dashboard", config.DEFAULT_SCREENS[0]["tiles"], app._state, mqtt_cls.return_value
+        )
 
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
@@ -67,11 +74,26 @@ class TestSetup:
 class TestPagesAndTasks:
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
-    def test_pages_returns_the_constructed_page(self, mqtt_cls, page_cls):
+    def test_pages_returns_a_page_per_default_screen(self, mqtt_cls, page_cls):
         app = DashboardApp(_config(), _secrets())
         app.setup(window_manager=mock.Mock())
 
         assert app.pages() == [page_cls.return_value]
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_pages_returns_multiple_pages_for_multiple_default_screens(self, mqtt_cls, page_cls):
+        config = _config(
+            DEFAULT_SCREENS=[
+                {"title": "Office", "tiles": []},
+                {"title": "Bedroom", "tiles": []},
+            ]
+        )
+        page_cls.side_effect = [mock.Mock(), mock.Mock()]
+        app = DashboardApp(config, _secrets())
+        app.setup(window_manager=mock.Mock())
+
+        assert len(app.pages()) == 2
 
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
@@ -97,6 +119,86 @@ class TestPagesAndTasks:
         assert isinstance(tasks[1], App.Task)
         assert tasks[1].fn == app._update_timezone
         assert tasks[1].touch_forces_execution is False
+
+
+class TestConfigUpdate:
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_remote_config_replaces_pages(self, mqtt_cls, page_cls):
+        window_manager = mock.Mock()
+        default_page = mock.Mock()
+        remote_page = mock.Mock()
+        page_cls.side_effect = [default_page, remote_page]
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+
+        app._on_config_update({"screens": [{"title": "Office", "tiles": [{"type": "datetime"}]}]})
+
+        page_cls.assert_called_with("Office", [{"type": "datetime"}], app._state, mqtt_cls.return_value)
+        assert app.pages() == [remote_page]
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_remote_config_swaps_window_manager_pages(self, mqtt_cls, page_cls):
+        window_manager = mock.Mock()
+        remote_page = mock.Mock()
+        page_cls.side_effect = [mock.Mock(), remote_page]
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+
+        app._on_config_update({"screens": [{"title": "Office", "tiles": []}]})
+
+        window_manager.remove_all_pages.assert_called_once()
+        window_manager.add_page.assert_called_once_with(remote_page)
+        window_manager.set_current_page.assert_called_once_with(remote_page)
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_remote_config_with_multiple_screens_adds_each_page(self, mqtt_cls, page_cls):
+        window_manager = mock.Mock()
+        office_page, bedroom_page = mock.Mock(), mock.Mock()
+        page_cls.side_effect = [mock.Mock(), office_page, bedroom_page]
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+
+        app._on_config_update(
+            {"screens": [{"title": "Office", "tiles": []}, {"title": "Bedroom", "tiles": []}]}
+        )
+
+        assert window_manager.add_page.call_args_list == [mock.call(office_page), mock.call(bedroom_page)]
+        window_manager.set_current_page.assert_called_once_with(office_page)
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_state_store_update_on_device_config_key_triggers_page_swap(self, mqtt_cls, page_cls):
+        window_manager = mock.Mock()
+        remote_page = mock.Mock()
+        page_cls.side_effect = [mock.Mock(), remote_page]
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+
+        app._state.set("device/config", {"screens": [{"title": "Office", "tiles": []}]})
+
+        assert app.pages() == [remote_page]
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_repeated_identical_config_does_not_rebuild_pages(self, mqtt_cls, page_cls):
+        # A broker reconnect re-delivers the same retained message --
+        # DashboardState.set() dispatches on every call regardless of
+        # whether the value changed, so this must be a no-op the second
+        # time or the user's current screen would reset for no reason.
+        window_manager = mock.Mock()
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+        payload = {"screens": [{"title": "Office", "tiles": []}]}
+
+        app._on_config_update(payload)
+        pages_after_first = app.pages()
+        app._on_config_update(dict(payload))
+
+        assert app.pages() == pages_after_first
+        assert window_manager.remove_all_pages.call_count == 1
 
 
 class TestUpdateTimezone:

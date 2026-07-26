@@ -67,6 +67,7 @@ class TestTickConnecting:
         )
         client.subscribe.assert_any_call(topics.state_wildcard(), qos=0)
         client.subscribe.assert_any_call(topics.BRIDGE_STATUS_TOPIC, qos=0)
+        client.subscribe.assert_any_call(topics.device_config_topic("presto-test"), qos=0)
 
     @mock.patch("dashboard.mqtt_client.MQTTClient")
     def test_failed_connect_schedules_retry_and_stays_disconnected(self, mqtt_client_cls):
@@ -182,6 +183,27 @@ class TestOnMessage:
         dash._on_message(topics.BRIDGE_STATUS_TOPIC.encode(), b"online")
 
         assert state.get("bridge/status") is True
+
+    @mock.patch("dashboard.mqtt_client.MQTTClient")
+    def test_config_topic_updates_device_config_key(self, mqtt_client_cls):
+        state = DashboardState()
+        dash = DashboardMQTT(state, "presto-test", "broker.local")
+        raw = b'{"screens": [{"title": "Dashboard", "tiles": [{"type": "datetime"}]}]}'
+
+        dash._on_message(topics.device_config_topic("presto-test").encode(), raw)
+
+        assert state.get("device/config") == {
+            "screens": [{"title": "Dashboard", "tiles": [{"type": "datetime"}]}]
+        }
+
+    @mock.patch("dashboard.mqtt_client.MQTTClient")
+    def test_malformed_config_payload_does_not_update_state(self, mqtt_client_cls):
+        state = DashboardState()
+        dash = DashboardMQTT(state, "presto-test", "broker.local")
+
+        dash._on_message(topics.device_config_topic("presto-test").encode(), b"not json")
+
+        assert state.get("device/config") is None
 
     @mock.patch("dashboard.mqtt_client.MQTTClient")
     def test_malformed_topic_is_ignored_without_raising(self, mqtt_client_cls):

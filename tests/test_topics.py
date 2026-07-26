@@ -22,6 +22,9 @@ class TestTopicBuilders:
     def test_device_status_topic(self):
         assert topics.device_status_topic("presto-office") == "presto/device/presto-office/status"
 
+    def test_device_config_topic(self):
+        assert topics.device_config_topic("presto-office") == "presto/device/presto-office/config"
+
     def test_bridge_status_topic_constant(self):
         assert topics.BRIDGE_STATUS_TOPIC == "presto/bridge/status"
 
@@ -109,6 +112,61 @@ class TestParseStatePayload:
     def test_unknown_domain_passes_through_dict_unvalidated(self):
         raw = json.dumps({"anything": True}).encode()
         assert topics.parse_state_payload("weather", raw) == {"anything": True}
+
+
+class TestParseConfigPayload:
+    def _payload(self, **overrides):
+        base = {"screens": [{"title": "Dashboard", "tiles": [{"type": "datetime"}]}]}
+        base.update(overrides)
+        return json.dumps(base).encode()
+
+    def test_valid_payload(self):
+        raw = self._payload()
+        assert topics.parse_config_payload(raw) == {
+            "screens": [{"title": "Dashboard", "tiles": [{"type": "datetime"}]}]
+        }
+
+    def test_accepts_str_as_well_as_bytes(self):
+        assert topics.parse_config_payload(self._payload().decode()) is not None
+
+    def test_multiple_screens(self):
+        raw = json.dumps(
+            {
+                "screens": [
+                    {"title": "Office", "tiles": []},
+                    {"title": "Bedroom", "tiles": []},
+                ]
+            }
+        ).encode()
+        payload = topics.parse_config_payload(raw)
+        assert len(payload["screens"]) == 2
+
+    def test_malformed_json_returns_none_not_raises(self):
+        assert topics.parse_config_payload(b"{not json") is None
+
+    def test_non_object_json_returns_none(self):
+        assert topics.parse_config_payload(b"[1, 2]") is None
+
+    def test_missing_screens_key_returns_none(self):
+        assert topics.parse_config_payload(json.dumps({}).encode()) is None
+
+    def test_empty_screens_list_returns_none(self):
+        assert topics.parse_config_payload(json.dumps({"screens": []}).encode()) is None
+
+    def test_screens_not_a_list_returns_none(self):
+        assert topics.parse_config_payload(json.dumps({"screens": "nope"}).encode()) is None
+
+    def test_screen_missing_tiles_returns_none(self):
+        raw = json.dumps({"screens": [{"title": "Office"}]}).encode()
+        assert topics.parse_config_payload(raw) is None
+
+    def test_screen_tiles_not_a_list_returns_none(self):
+        raw = json.dumps({"screens": [{"title": "Office", "tiles": "nope"}]}).encode()
+        assert topics.parse_config_payload(raw) is None
+
+    def test_screen_not_an_object_returns_none(self):
+        raw = json.dumps({"screens": ["nope"]}).encode()
+        assert topics.parse_config_payload(raw) is None
 
 
 class TestParseAvailabilityPayload:

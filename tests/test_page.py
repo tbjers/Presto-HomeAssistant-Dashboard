@@ -43,9 +43,16 @@ TILES = [
 ]
 
 
+class TestDashboardPageTitle:
+    def test_title_comes_from_constructor(self):
+        page = DashboardPage("Bedroom", TILES, DashboardState(), mock.Mock())
+
+        assert page.title == "Bedroom"
+
+
 class TestDashboardPageSetup:
     def test_setup_partitions_controls_and_plain_tiles(self):
-        page = DashboardPage(TILES, DashboardState(), mock.Mock())
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
 
         # toggle x2 + scene = 3 Control tiles; sensor + datetime = 2 plain tiles.
@@ -55,7 +62,7 @@ class TestDashboardPageSetup:
     def test_setup_seeds_tiles_from_existing_state(self):
         state = DashboardState()
         state.set("light/lamp", {"state": "on"})
-        page = DashboardPage(TILES, state, mock.Mock())
+        page = DashboardPage("Dashboard", TILES, state, mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
 
         lamp_tile = page._controls[0]
@@ -63,7 +70,7 @@ class TestDashboardPageSetup:
 
     def test_state_update_after_setup_updates_tile_and_needs_update(self):
         state = DashboardState()
-        page = DashboardPage(TILES, state, mock.Mock())
+        page = DashboardPage("Dashboard", TILES, state, mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
         page.needs_update = False
 
@@ -76,7 +83,7 @@ class TestDashboardPageSetup:
     def test_resolves_string_threshold_names_to_palette_scales(self):
         from dashboard import palette
 
-        page = DashboardPage(TILES, DashboardState(), mock.Mock())
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
 
         sensor_tile = page._plain_tiles[0]
@@ -84,7 +91,7 @@ class TestDashboardPageSetup:
 
     def test_re_setup_unsubscribes_previous_listeners(self):
         state = DashboardState()
-        page = DashboardPage(TILES, state, mock.Mock())
+        page = DashboardPage("Dashboard", TILES, state, mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
         first_lamp_tile = page._controls[0]
 
@@ -97,7 +104,7 @@ class TestDashboardPageSetup:
 class TestDashboardPageTouch:
     def test_tap_on_toggle_tile_publishes_via_mqtt(self, mock_touch_factory):
         mqtt = mock.Mock()
-        page = DashboardPage(TILES, DashboardState(), mqtt)
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mqtt)
         page.setup(Region(0, 0, 480, 480), _window_manager())
 
         lamp_tile = page._controls[0]
@@ -111,7 +118,7 @@ class TestDashboardPageTouch:
 
     def test_tap_on_dimmable_light_opens_modal(self, mock_touch_factory):
         window_manager = _window_manager()
-        page = DashboardPage(TILES, DashboardState(), mock.Mock())
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
         page.setup(Region(0, 0, 480, 480), window_manager)
 
         ceiling_tile = page._controls[1]
@@ -126,7 +133,7 @@ class TestDashboardPageDrawAndTeardown:
     def test_draw_clears_display_and_draws_plain_tiles_only(self):
         display = mock.Mock()
         theme = mock.Mock(padding=8)
-        page = DashboardPage(TILES, DashboardState(), mock.Mock())
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
 
         page._draw(display, Region(0, 0, 480, 480), theme)
@@ -135,7 +142,7 @@ class TestDashboardPageDrawAndTeardown:
 
     def test_teardown_unsubscribes_all_listeners(self):
         state = DashboardState()
-        page = DashboardPage(TILES, state, mock.Mock())
+        page = DashboardPage("Dashboard", TILES, state, mock.Mock())
         page.setup(Region(0, 0, 480, 480), _window_manager())
         lamp_tile = page._controls[0]
 

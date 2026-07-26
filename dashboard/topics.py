@@ -50,6 +50,10 @@ def device_status_topic(device_id):
     return "{}/device/{}/status".format(TOPIC_ROOT, device_id)
 
 
+def device_config_topic(device_id):
+    return "{}/device/{}/config".format(TOPIC_ROOT, device_id)
+
+
 def parse_topic(topic):
     """
     Parses an entity topic of the form presto/<domain>/<slug>/<kind> into
@@ -102,6 +106,38 @@ def parse_state_payload(domain, raw):
         return payload
 
     # Unknown domain: pass the parsed dict through unvalidated.
+    return payload
+
+
+def parse_config_payload(raw):
+    """
+    json.loads with light validation of the envelope shape --
+    {"screens": [{"title": ..., "tiles": [...]}, ...]} -- the same
+    "validate the envelope, trust the contents" style as
+    parse_state_payload. Individual tile dicts inside "tiles" are NOT
+    validated here: they're trusted the same way config.py's hand-authored
+    DEFAULT_SCREENS already is, so a malformed tile spec fails the same way
+    a config.py typo does today (a KeyError from the relevant tile builder
+    in dashboard/page.py) rather than here. Never raises -- returns None on
+    anything malformed so a single bad message can't crash the MQTT task.
+    """
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    screens = payload.get("screens")
+    if not isinstance(screens, list) or not screens:
+        return None
+    for screen in screens:
+        if not isinstance(screen, dict) or not isinstance(screen.get("tiles"), list):
+            return None
+
     return payload
 
 

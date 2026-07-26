@@ -23,11 +23,14 @@ class DashboardApp(App):
         self._secrets = secrets
         self._state = DashboardState()
         self._mqtt = None
-        self._page = None
+        self._pages = []
         self._os = None
+        self._window_manager = None
+        self._applied_config = None
 
     def setup(self, window_manager):
         self._os = window_manager.os
+        self._window_manager = window_manager
         self._mqtt = DashboardMQTT(
             self._state,
             device_id=self._config.DEVICE_ID,
@@ -36,10 +39,41 @@ class DashboardApp(App):
             user=getattr(self._secrets, "MQTT_USER", None),
             password=getattr(self._secrets, "MQTT_PASSWORD", None),
         )
-        self._page = DashboardPage(self._config.TILES, self._state, self._mqtt)
+        self._pages = self._build_pages(self._config.DEFAULT_SCREENS)
+        self._state.on_update("device/config", self._on_config_update)
 
     def pages(self):
-        return [self._page]
+        return self._pages
+
+    def _build_pages(self, screens):
+        return [
+            DashboardPage(screen.get("title", "Dashboard"), screen["tiles"], self._state, self._mqtt)
+            for screen in screens
+        ]
+
+    def _on_config_update(self, payload):
+        # DashboardApp.pages() is pulled once at boot, before Wi-Fi/MQTT
+        # even connect (see main.py's AppManager.add_app call) -- so the
+        # DEFAULT_SCREENS fallback is showing on every boot, briefly, until
+        # this fires with the device's real per-device config. AppManager
+        # can't be reused to swap pages for an already-current app (it's a
+        # no-op, see tmos_apps.py's set_current_app), so this replicates
+        # what it does internally directly against window_manager.
+        #
+        # DashboardState.set() dispatches on every call, not only on
+        # change (see state_store.py) -- a broker reconnect re-delivers
+        # the same retained message, which would otherwise tear down and
+        # rebuild every page (losing whichever screen the user was on)
+        # for no reason. Skip the swap if this is the same config already
+        # applied.
+        if payload == self._applied_config:
+            return
+        self._applied_config = payload
+        self._pages = self._build_pages(payload["screens"])
+        self._window_manager.remove_all_pages()
+        for page in self._pages:
+            self._window_manager.add_page(page)
+        self._window_manager.set_current_page(self._pages[0])
 
     def tasks(self):
         return [
