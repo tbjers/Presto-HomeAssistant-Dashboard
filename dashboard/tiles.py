@@ -254,7 +254,7 @@ class WeatherTile(Tile):
 
         # The temperature/unit/label block anchors one grid cell down and
         # over from where the icon's own (full-size) bounding box ended.
-        text_x = icon_box_x + icon_box_size + theme.padding + grid_step
+        text_x = icon_box_x + icon_box_size + theme.padding
         temp_y = icon_box_y + grid_step
 
         label_y = temp_y
@@ -272,7 +272,7 @@ class WeatherTile(Tile):
                 unit_text = "°" + self.unit
                 display.set_pen(self._pens.get(palette.GRAY_600))
                 theme.text(
-                    display, unit_text, text_x + temp_width + 4 - theme.padding, temp_y, rel_scale=1
+                    display, unit_text, text_x + temp_width + 6 - theme.padding, temp_y, rel_scale=1
                 )
 
             # +4 to clear the value's own descender/baseline the same way
