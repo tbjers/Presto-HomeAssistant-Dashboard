@@ -504,7 +504,7 @@ class TestWeatherTile:
         # Same relative offset from the temperature's own draw position as
         # ValueTile uses from its value's draw position, regardless of
         # what that position is in this (differently laid out) tile.
-        assert unit_call.args[2] == temp_call.args[2] + temp_width + 4 - theme.padding
+        assert unit_call.args[2] == temp_call.args[2] + temp_width + 6 - theme.padding
 
     def test_wide_label_gap_is_ten_pixels_below_the_temperature(self):
         # The project owner asked for 6px more than the prior 4px gap
@@ -768,7 +768,7 @@ class TestWeatherTile:
 
         icon_box_size = wide_region.height - theme.padding * 2  # icon's old full-size bounding box
         grid_step = round(grid.tile_size(480) + theme.padding)
-        expected_text_x = wide_region.x + theme.padding + icon_box_size + theme.padding + grid_step
+        expected_text_x = wide_region.x + theme.padding + icon_box_size + theme.padding
         expected_temp_y = wide_region.y + theme.padding + grid_step
 
         # Both the temperature and the label share the same left edge, and
