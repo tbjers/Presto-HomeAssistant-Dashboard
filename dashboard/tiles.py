@@ -25,7 +25,7 @@ import time
 
 from tmos_ui import Control, MomentaryButton
 
-from dashboard import palette, topics
+from dashboard import grid, palette, topics, weather_icon
 from dashboard.modal import LightBrightnessModal
 
 
@@ -33,6 +33,7 @@ class Tile:
     def __init__(self, region, pens):
         self.region = region
         self._pens = pens
+        self._dirty = True  # starts dirty so the first tick always paints
 
     def draw(self, display, theme):
         raise NotImplementedError()
@@ -40,7 +41,30 @@ class Tile:
     def set_state(self, value):
         """Updates cached data only -- does not draw. The caller
         (DashboardPage) is responsible for setting page.needs_update
-        afterwards."""
+        afterwards. Subclasses that back a plain (non-Control) tile should
+        set self._dirty = True here, but only when the incoming value
+        actually differs from what's cached -- see is_dirty()."""
+
+    def is_dirty(self):
+        """
+        Whether this tile needs to be redrawn. Checked by
+        DashboardPage._draw() for plain tiles only -- Control-based tiles
+        (ToggleTile, SceneButtonTile, DimmableLightTile) are drawn
+        unconditionally by TmOS's own vendored Page._tick() loop instead,
+        so dirty-tracking doesn't apply to them.
+        """
+        return self._dirty
+
+    def mark_clean(self):
+        """Called by DashboardPage._draw() after drawing a dirty tile."""
+        self._dirty = False
+
+    def mark_dirty(self):
+        """Forces this tile to redraw on the next tick, regardless of
+        whether its cached data changed -- used when the page becomes
+        visible again after being hidden, since the screen may have been
+        overwritten by whatever page was shown in between."""
+        self._dirty = True
 
 
 def _draw_bg(display, pens, region, color):
@@ -71,7 +95,10 @@ class ValueTile(Tile):
         self._value = initial_value
 
     def set_state(self, value):
-        self._value = value.get("value") if value else None
+        new_value = value.get("value") if value else None
+        if new_value != self._value:
+            self._value = new_value
+            self._dirty = True
 
     def draw(self, display, theme):
         x, y, width, height = self.region
@@ -99,6 +126,180 @@ class ValueTile(Tile):
         theme.text(display, self.label, x + theme.padding, y + height - theme.padding - 10, rel_scale=1)
 
 
+class WeatherTile(Tile):
+    """
+    Read-only weather display: MDI condition icon (dashboard.weather_icon,
+    vector, monochrome) + temperature + label. No threshold-colored
+    background like ValueTile -- weather condition doesn't map to a
+    background-color gradient.
+
+    Vector rendering is viable here (unlike it would be for a tile redrawn
+    every tick) because this is a plain tile: Part 1's dirty-tracking means
+    draw() only runs when the condition/temperature actually changes, which
+    for a weather entity is on the order of minutes, not 10x/second.
+
+    Layout is size-specific rather than a single formula, per the project
+    owner's direction: the smallest (4x4) tile has no room for an icon
+    alongside the temperature, so it drops the icon entirely and matches
+    ValueTile's own layout exactly (large value, dimmed unit beside it,
+    label pinned to the tile's bottom edge). The two wider sizes (8x4,
+    16x6) both put a half-size icon beside a temperature/unit/label block
+    that's shifted one grid cell down and over from the icon's own
+    (full-size) bounding box, with the label directly beneath that block
+    instead of at the tile's bottom edge. Both cases are reached through
+    the same `width > height * _wide_aspect_ratio` check that already
+    existed for telling wide tiles from square/tall ones -- 8x4 and 16x6
+    both clear that threshold, 4x4 doesn't.
+
+    Humidity is optional and only shown in the wide (icon) layout -- when
+    present, it's inserted where the label would otherwise sit, and the
+    label itself moves down one more grid row to make room. Not supported
+    in the compact (4x4) layout, which is deliberately ValueTile-identical
+    and has no equivalent "row" to insert one into.
+    """
+
+    temperature_rel_scale = 3
+    _wide_aspect_ratio = 1.5
+    _icon_shrink = 0.5
+
+    def __init__(
+        self, region, pens, label, unit="", initial_condition=None, initial_temperature=None,
+        initial_humidity=None,
+    ):
+        super().__init__(region, pens)
+        self.label = label
+        self.unit = unit
+        self._condition = initial_condition
+        self._temperature = initial_temperature
+        self._humidity = initial_humidity
+
+    def set_state(self, value):
+        condition = value.get("condition") if value else None
+        temperature = value.get("temperature") if value else None
+        humidity = value.get("humidity") if value else None
+        new_state = (condition, temperature, humidity)
+        if new_state != (self._condition, self._temperature, self._humidity):
+            self._condition, self._temperature, self._humidity = new_state
+            self._dirty = True
+
+    def draw(self, display, theme):
+        x, y, width, height = self.region
+        _draw_bg(display, self._pens, self.region, palette.GRAY_900)
+
+        if width > height * self._wide_aspect_ratio:
+            self._draw_wide(display, theme, x, y, height)
+        else:
+            self._draw_compact(display, theme, x, y, height)
+
+    def _draw_compact(self, display, theme, x, y, height):
+        """No icon -- used for the smallest (4x4) tile, where there isn't
+        room for one alongside the temperature. Deliberately identical to
+        ValueTile.draw()'s layout (large value, dimmed unit beside it,
+        label at the tile's bottom edge), not just visually similar."""
+        text_x = x + theme.padding
+        value_y = y + theme.padding
+
+        if self._temperature is not None:
+            temp_text = str(round(self._temperature))
+            display.set_pen(self._pens.get(palette.GRAY_200))
+            theme.text(display, temp_text, text_x, value_y, rel_scale=self.temperature_rel_scale)
+
+            if self.unit:
+                temp_width, _ = theme.measure_text(
+                    display, temp_text, rel_scale=self.temperature_rel_scale
+                )
+                unit_text = "°" + self.unit
+                display.set_pen(self._pens.get(palette.GRAY_600))
+                # Matches ValueTile's exact value-to-unit gap (see its
+                # draw()): offset is relative to the value's own draw
+                # position (text_x), same as ValueTile's is relative to
+                # its value's draw position (x + theme.padding) -- both
+                # reduce to value_width + 4 - theme.padding from there.
+                theme.text(
+                    display, unit_text, text_x + temp_width + 4 - theme.padding, value_y, rel_scale=1
+                )
+
+        display.set_pen(self._pens.get(palette.GRAY_600))
+        theme.text(display, self.label, text_x, y + height - theme.padding - 10, rel_scale=1)
+
+    def _draw_wide(self, display, theme, x, y, height):
+        """Icon beside a temperature/unit/label block -- used for 8x4 and
+        16x6, the two sizes with enough width to fit both."""
+        icon_box_size = int(height - theme.padding * 2)
+        icon_box_x = x + theme.padding
+        icon_box_y = y + theme.padding
+
+        # The icon is drawn at half that box's size, centered within it,
+        # rather than filling it -- confirmed by the project owner as the
+        # preferred look once the temperature/unit/label moved to its own
+        # offset block below instead of sitting flush against the icon.
+        icon_size = int(icon_box_size * self._icon_shrink)
+        icon_x = icon_box_x + (icon_box_size - icon_size) // 2
+        icon_y = icon_box_y + (icon_box_size - icon_size) // 2
+        # Dimmer than the temperature/label text (GRAY_200) -- at GRAY_200
+        # the icon read as "really, really bright" against the tile's dark
+        # (GRAY_900) background, per the project owner.
+        weather_icon.draw(
+            display, self._condition, icon_x, icon_y, icon_size, self._pens.get(palette.GRAY_500)
+        )
+
+        # One grid cell's worth of pixels, in either direction -- matches
+        # how dashboard.grid.cell_region itself steps between adjacent
+        # columns/rows (tile size + gap), not just the bare cell size.
+        # Reference width is the fixed 480px display width (this app always
+        # boots full_res=True), the same hardcoded reference
+        # dashboard/theme.py's CompressoTheme.setup() already uses for
+        # systray_height.
+        grid_step = round(grid.tile_size(480) + theme.padding)
+
+        # The temperature/unit/label block anchors one grid cell down and
+        # over from where the icon's own (full-size) bounding box ended.
+        text_x = icon_box_x + icon_box_size + theme.padding + grid_step
+        temp_y = icon_box_y + grid_step
+
+        label_y = temp_y
+        if self._temperature is not None:
+            temp_text = str(round(self._temperature))
+            display.set_pen(self._pens.get(palette.GRAY_200))
+            theme.text(display, temp_text, text_x, temp_y, rel_scale=self.temperature_rel_scale)
+            temp_width, temp_height = theme.measure_text(
+                display, temp_text, rel_scale=self.temperature_rel_scale
+            )
+
+            if self.unit:
+                # Matches ValueTile's exact value-to-unit gap -- see
+                # _draw_compact's equivalent line for the derivation.
+                unit_text = "°" + self.unit
+                display.set_pen(self._pens.get(palette.GRAY_600))
+                theme.text(
+                    display, unit_text, text_x + temp_width + 4 - theme.padding, temp_y, rel_scale=1
+                )
+
+            # +4 to clear the value's own descender/baseline the same way
+            # ValueTile's bottom-pinned label already does, plus 6 more on
+            # top of that -- the project owner asked for a bit more
+            # breathing room between the temperature and the label here
+            # specifically (this gap doesn't exist in ValueTile at all,
+            # since its label is pinned to the tile's bottom edge instead
+            # of sitting directly under the value).
+            label_y = temp_y + temp_height + 4 + 6
+
+        if self._humidity is not None:
+            # Humidity takes the row the label would otherwise have used;
+            # the label itself moves down one grid row (same grid_step
+            # used to anchor the temperature block above) to make room --
+            # per the project owner's instructions. Drawn in GRAY_200 (the
+            # same bright color as the temperature value), not the dimmed
+            # GRAY_600 the label/unit use.
+            humidity_text = "{}% HUMIDITY".format(round(self._humidity))
+            display.set_pen(self._pens.get(palette.GRAY_200))
+            theme.text(display, humidity_text, text_x, label_y, rel_scale=1)
+            label_y += grid_step
+
+        display.set_pen(self._pens.get(palette.GRAY_600))
+        theme.text(display, self.label, text_x, label_y, rel_scale=1)
+
+
 class DateTimeTile(Tile):
     """
     HH:MM + weekday/date, driven by the device RTC only (via
@@ -120,20 +321,36 @@ class DateTimeTile(Tile):
     def __init__(self, region, pens, os):
         super().__init__(region, pens)
         self._os = os
+        self._last_rendered = None  # (time_text, date_text), or None before the first draw
+
+    def _current_text(self):
+        t = self._os.localtime()
+        month, mday, hour, minute, weekday = t[1], t[2], t[3], t[4], t[6]
+        time_text = "{:0>2}:{:0>2}".format(hour, minute)
+        date_text = "{}, {:0>2}.{:0>2}.".format(self.weekdays[weekday], mday, month)
+        return time_text, date_text
+
+    def is_dirty(self):
+        """Driven by the RTC, not set_state() -- dirty whenever the
+        minute/date actually displayed would change, not on every tick."""
+        return self._current_text() != self._last_rendered
+
+    def mark_dirty(self):
+        self._last_rendered = None
+
+    def mark_clean(self):
+        self._last_rendered = self._current_text()
 
     def draw(self, display, theme):
         x, y, width, height = self.region
         _draw_bg(display, self._pens, self.region, palette.GRAY_900)
 
-        t = self._os.localtime()
-        month, mday, hour, minute, weekday = t[1], t[2], t[3], t[4], t[6]
+        time_text, date_text = self._current_text()
 
         display.set_pen(self._pens.get(palette.GRAY_200))
-        time_text = "{:0>2}:{:0>2}".format(hour, minute)
         theme.text(display, time_text, x + theme.padding, y + theme.padding, rel_scale=3)
 
         display.set_pen(self._pens.get(palette.GRAY_600))
-        date_text = "{}, {:0>2}.{:0>2}.".format(self.weekdays[weekday], mday, month)
         theme.text(display, date_text, x + theme.padding, y + height - theme.padding - 10, rel_scale=1)
 
 

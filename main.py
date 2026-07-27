@@ -18,9 +18,16 @@ from tmos import OS
 from tmos_ui import WindowManager
 from tmos_apps import AppManager
 
-from dashboard.app import DashboardApp
 from dashboard.splash import show as show_splash
 from dashboard.theme import CompressoTheme
+# dashboard.app is deliberately NOT imported up here -- it transitively
+# imports dashboard.tiles -> dashboard.weather_icon -> dashboard.weather_icons,
+# a sizeable table of baked MDI icon point data that MicroPython has to
+# parse/compile on import. Since Python runs all top-level imports before any
+# other top-level statement, importing it this early would make that parse
+# cost part of the delay before show_splash(os) below ever paints anything --
+# exactly the blank-screen wait splash.py exists to avoid. Imported instead
+# just before first use, after the splash is already on screen.
 
 ntptime.host = "time1.google.com"
 # ntptime's own default, pool.ntp.org, timed out repeatedly on this network
@@ -48,6 +55,8 @@ wm = WindowManager(os, theme=CompressoTheme(), systray_visible=True)
 # app-switcher button as systray *content*, it never flips this flag itself,
 # so it has to be set explicitly here or the systray never renders at all.
 apps = AppManager(wm)  # default systray_position -- app-switcher accessory on the leading edge
+
+from dashboard.app import DashboardApp  # noqa: E402 -- see the top-of-file note
 
 dash_app = DashboardApp(config, secrets)
 apps.add_app(dash_app, make_current=True)

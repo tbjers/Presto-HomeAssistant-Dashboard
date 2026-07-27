@@ -107,9 +107,9 @@ class SliderControl(Control):
 class DetailModalPage(StaticPage):
     """
     Base for tile detail modals. Draws a close button, top-right, wired to
-    window_manager.clear_modal_page. Subclasses must call
-    super().setup(region, window_manager) before appending their own
-    controls, so the close button is added first.
+    _close_modal (which wraps window_manager.clear_modal_page). Subclasses
+    must call super().setup(region, window_manager) before appending their
+    own controls, so the close button is added first.
     """
 
     title = ""  # a modal covers the systray anyway; no title needed
@@ -122,8 +122,26 @@ class DetailModalPage(StaticPage):
             region.x + region.width - p - width, region.y + p, width, height
         )
         close_button = MomentaryButton(close_region, "Close")
-        close_button.on_button_up = window_manager.clear_modal_page
+        close_button.on_button_up = lambda: self._close_modal(window_manager)
         self._controls.append(close_button)
+
+    def _close_modal(self, window_manager):
+        window_manager.clear_modal_page()
+        # TmOS's own show_modal_page/clear_modal_page (tmos_ui.py) don't run
+        # the usual will_show()/will_hide() page-transition dance for the
+        # *underlying* page here -- that only fires from __update_pages() on
+        # an actual current-page change, which __update_pages() itself skips
+        # entirely whenever a modal is active, and closing this modal doesn't
+        # change window_manager.current_page (it was never touched). Without
+        # this, DashboardPage's tiles (dashboard/tiles.py, page.py) -- which
+        # skip redrawing a tile whose data hasn't changed since it was last
+        # drawn -- would resume ticking still marked clean from before the
+        # modal opened, leaving the modal's leftover pixels on screen. Force
+        # one full repaint of whatever page is underneath now that the modal
+        # is gone.
+        underlying = window_manager.current_page
+        if underlying is not None:
+            underlying.will_show()
 
 
 class LightBrightnessModal(DetailModalPage):

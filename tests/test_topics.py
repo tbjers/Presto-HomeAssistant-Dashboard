@@ -109,9 +109,23 @@ class TestParseStatePayload:
         assert topics.parse_state_payload("switch", b'"on"') is None
         assert topics.parse_state_payload("switch", b"[1, 2]") is None
 
+    def test_valid_weather_payload(self):
+        raw = json.dumps({"condition": "sunny", "temperature": 21.5}).encode()
+        assert topics.parse_state_payload("weather", raw) == {
+            "condition": "sunny", "temperature": 21.5,
+        }
+
+    def test_weather_payload_missing_condition_is_rejected(self):
+        raw = json.dumps({"temperature": 21.5}).encode()
+        assert topics.parse_state_payload("weather", raw) is None
+
+    def test_weather_payload_with_non_string_condition_is_rejected(self):
+        raw = json.dumps({"condition": 1}).encode()
+        assert topics.parse_state_payload("weather", raw) is None
+
     def test_unknown_domain_passes_through_dict_unvalidated(self):
         raw = json.dumps({"anything": True}).encode()
-        assert topics.parse_state_payload("weather", raw) == {"anything": True}
+        assert topics.parse_state_payload("climate", raw) == {"anything": True}
 
 
 class TestParseConfigPayload:

@@ -9,18 +9,42 @@ Not a StaticPage: confirmed via real-hardware testing on the preview build
 (see main.py's PreviewPage) that StaticPage's fixed execution_frequency=0
 leaves SceneButtonTile's flash stuck on-screen (nothing schedules the ~400ms
 redraw that fades it back out) and DateTimeTile's clock frozen between
-touches. Page._tick() always fully redraws whenever invoked -- the gap is
-that nothing schedules that invocation on a timer by itself under
-StaticPage. A modest periodic execution_frequency covers both animations;
-needs_update (set from state_store callbacks) still covers instant response
-to MQTT-driven changes in between ticks.
+touches. A modest periodic execution_frequency (see DashboardPage below)
+covers both animations; needs_update (set from state_store callbacks) still
+covers instant response to MQTT-driven changes in between ticks.
+
+_draw() itself does NOT unconditionally redraw every plain tile on every one
+of those ticks -- each Tile tracks its own is_dirty()/mark_clean() state
+(dashboard/tiles.py), so a tile whose backing value hasn't changed since it
+was last drawn is skipped. This matters for WeatherTile specifically: its
+icon is vector (dashboard/weather_icon.py), and re-running PicoVector curve
+rendering 10x/second forever (this page's execution_frequency) for an icon
+that changes on the order of minutes would be real, avoidable waste --
+dirty-tracking is what makes vector viable there. Control-based tiles
+(ToggleTile, SceneButtonTile, DimmableLightTile) are unaffected by this --
+they're drawn by TmOS's own vendored Page._tick() loop over self._controls,
+not by _draw(), so dirty-tracking doesn't (and can't, without hand-editing
+vendored code) apply to them.
+
+Because individual tiles can now skip their own redraw, _draw() also stops
+unconditionally clearing the whole page's region on every tick -- see
+will_show() and the _needs_full_clear flag -- since blanking the region
+every tick would erase already-correct pixels for tiles that were about to
+be skipped as "clean".
 """
 
 from tmos_ui import Page
 
 from dashboard import grid, palette
 from dashboard.palette import PenCache
-from dashboard.tiles import DateTimeTile, DimmableLightTile, SceneButtonTile, ToggleTile, ValueTile
+from dashboard.tiles import (
+    DateTimeTile,
+    DimmableLightTile,
+    SceneButtonTile,
+    ToggleTile,
+    ValueTile,
+    WeatherTile,
+)
 
 _TILE_BUILDERS = {}
 
@@ -56,6 +80,11 @@ def _build_scene(spec, region, pens, mqtt, window_manager):
 @_tile_builder("datetime")
 def _build_datetime(spec, region, pens, mqtt, window_manager):
     return DateTimeTile(region, pens, window_manager.os)
+
+
+@_tile_builder("weather")
+def _build_weather(spec, region, pens, mqtt, window_manager):
+    return WeatherTile(region, pens, spec["label"], unit=spec.get("unit", ""))
 
 
 def _resolve_thresholds(thresholds):
@@ -98,9 +127,11 @@ class DashboardPage(Page):
         self._mqtt = mqtt
         self._plain_tiles = []
         self._unsubscribes = []
+        self._needs_full_clear = True
 
     def setup(self, region, window_manager):
         self.teardown()
+        self._needs_full_clear = True
         pens = PenCache(window_manager.display)
 
         for spec in self._tiles_config:
@@ -132,10 +163,27 @@ class DashboardPage(Page):
 
         return updater
 
-    def _draw(self, display, region, theme):
-        theme.clear_display(display, region)
+    def will_show(self):
+        # Called every time this page becomes the current one again (not
+        # just on first display) -- whatever page was shown in between may
+        # have overwritten this page's pixels, so force one full repaint
+        # regardless of which tiles' own data actually changed. Without
+        # this, a plain tile whose value hasn't changed since it was last
+        # drawn would stay skipped by is_dirty() and never repaint the
+        # stale content left behind by the other page.
+        self._needs_full_clear = True
         for tile in self._plain_tiles:
+            tile.mark_dirty()
+
+    def _draw(self, display, region, theme):
+        if self._needs_full_clear:
+            theme.clear_display(display, region)
+            self._needs_full_clear = False
+        for tile in self._plain_tiles:
+            if not tile.is_dirty():
+                continue
             tile.draw(display, theme)
+            tile.mark_clean()
 
     def teardown(self):
         for unsubscribe in self._unsubscribes:

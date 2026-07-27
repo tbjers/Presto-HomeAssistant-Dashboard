@@ -151,3 +151,58 @@ class TestDashboardPageDrawAndTeardown:
 
         state.set("light/lamp", {"state": "on"})
         assert lamp_tile._state is None
+
+
+class TestDashboardPageDirtyTracking:
+    def _draw_page(self, page, display, theme):
+        page._draw(display, Region(0, 0, 480, 480), theme)
+
+    def test_second_draw_without_changes_skips_already_clean_tiles(self):
+        display = mock.Mock()
+        theme = mock.Mock(padding=8)
+        theme.measure_text.return_value = (20, 10)
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
+        page.setup(Region(0, 0, 480, 480), _window_manager())
+
+        self._draw_page(page, display, theme)
+        first_text_calls = theme.text.call_count
+
+        self._draw_page(page, display, theme)
+
+        assert theme.text.call_count == first_text_calls  # nothing redrawn
+        assert theme.clear_display.call_count == 1  # only cleared once
+
+    def test_state_change_redraws_only_the_changed_tile(self):
+        state = DashboardState()
+        display = mock.Mock()
+        theme = mock.Mock(padding=8)
+        theme.measure_text.return_value = (20, 10)
+        page = DashboardPage("Dashboard", TILES, state, mock.Mock())
+        page.setup(Region(0, 0, 480, 480), _window_manager())
+        self._draw_page(page, display, theme)
+        theme.text.reset_mock()
+
+        state.set("sensor/office_temp", {"value": 23})
+        self._draw_page(page, display, theme)
+
+        rendered = [c.args[1] for c in theme.text.call_args_list]
+        assert "23" in rendered
+        # DateTimeTile's clock value hasn't changed (same mocked minute), so
+        # it should have stayed clean and not redrawn.
+        assert "Friday, 24.07." not in rendered
+
+    def test_will_show_forces_a_full_clear_and_redraw(self):
+        display = mock.Mock()
+        theme = mock.Mock(padding=8)
+        theme.measure_text.return_value = (20, 10)
+        page = DashboardPage("Dashboard", TILES, DashboardState(), mock.Mock())
+        page.setup(Region(0, 0, 480, 480), _window_manager())
+        self._draw_page(page, display, theme)
+        theme.clear_display.reset_mock()
+        theme.text.reset_mock()
+
+        page.will_show()
+        self._draw_page(page, display, theme)
+
+        theme.clear_display.assert_called_once()
+        assert theme.text.call_count > 0

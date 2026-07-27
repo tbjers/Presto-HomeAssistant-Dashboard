@@ -142,19 +142,56 @@ class TestSliderControlDraw:
 
 
 class TestDetailModalPage:
-    def test_setup_adds_a_close_button_wired_to_clear_modal_page(self):
-        page = DetailModalPage()
-        region = Region(0, 0, 480, 480)
+    def _window_manager(self):
         window_manager = mock.Mock()
         window_manager.theme.padding = 8
         window_manager.theme.control_height = 53
-        window_manager.clear_modal_page = mock.Mock()
+        return window_manager
 
-        page.setup(region, window_manager)
+    def test_setup_adds_a_close_button(self):
+        page = DetailModalPage()
+        window_manager = self._window_manager()
+
+        page.setup(Region(0, 0, 480, 480), window_manager)
 
         assert len(page._controls) == 1
+
+    def test_closing_clears_the_modal_page(self):
+        page = DetailModalPage()
+        window_manager = self._window_manager()
+        page.setup(Region(0, 0, 480, 480), window_manager)
         close_button = page._controls[0]
-        assert close_button.on_button_up is window_manager.clear_modal_page
+
+        close_button.on_button_up()
+
+        window_manager.clear_modal_page.assert_called_once()
+
+    def test_closing_forces_the_underlying_page_to_redraw(self):
+        # TmOS's own show_modal_page/clear_modal_page don't run the usual
+        # will_show()/will_hide() page-transition dance for the page
+        # underneath a modal (see dashboard/modal.py's _close_modal
+        # docstring) -- without explicitly calling will_show() here, a
+        # DashboardPage's tiles would stay marked clean from before the
+        # modal opened and never repaint over its leftover pixels.
+        page = DetailModalPage()
+        window_manager = self._window_manager()
+        underlying_page = mock.Mock()
+        window_manager.current_page = underlying_page
+        page.setup(Region(0, 0, 480, 480), window_manager)
+        close_button = page._controls[0]
+
+        close_button.on_button_up()
+
+        underlying_page.will_show.assert_called_once()
+
+    def test_closing_with_no_current_page_does_not_raise(self):
+        page = DetailModalPage()
+        window_manager = self._window_manager()
+        window_manager.current_page = None
+        page.setup(Region(0, 0, 480, 480), window_manager)
+        close_button = page._controls[0]
+
+        close_button.on_button_up()  # should not raise
 
 
 class TestLightBrightnessModal:

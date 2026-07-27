@@ -24,7 +24,7 @@ SET_KIND = "set"
 TRIGGER_DOMAINS = ("scene", "script")
 
 # Domains that only ever publish /state (no /set — read-only).
-READ_ONLY_DOMAINS = ("sensor",)
+READ_ONLY_DOMAINS = ("sensor", "weather")
 
 BRIDGE_STATUS_TOPIC = "{}/bridge/status".format(TOPIC_ROOT)
 
@@ -102,6 +102,11 @@ def parse_state_payload(domain, raw):
 
     if domain == "sensor":
         if "value" not in payload:
+            return None
+        return payload
+
+    if domain == "weather":
+        if not isinstance(payload.get("condition"), str):
             return None
         return payload
 

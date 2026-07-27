@@ -34,6 +34,7 @@ these topic strings — see `dashboard/topics.py` for the full contract:
 | `light` | `{"state": "on"/"off", "brightness"?: 0-255}` | same shape | brightness optional both ways |
 | `switch` | `{"state": "on"/"off"}` | same shape | no brightness field |
 | `sensor` | `{"value": <number>, ...}` | — | read-only |
+| `weather` | `{"condition": <string>, "temperature"?: <number>, "humidity"?: <number>}` | — | read-only; `condition` is one of Home Assistant's 15 `weather.*` states (`sunny`, `cloudy`, `rainy`, etc.); `humidity` (a plain 0-100 percentage) is only shown in the wider tile sizes (8x4/16x6), not the 4x4 size |
 | `scene` / `script` | — | `{}` | write-only trigger, no state |
 
 Plus `presto/device/<device_id>/status` (this device's own LWT: `online`/`offline`) and
@@ -130,6 +131,10 @@ The real, per-device screens/tiles are published as a **retained** JSON message 
         {
           "type": "datetime",
           "col": 0, "row": 4, "colspan": 8, "rowspan": 4
+        },
+        {
+          "type": "weather", "domain": "weather", "slug": "home", "label": "OUTSIDE", "unit": "F",
+          "col": 0, "row": 10, "colspan": 16, "rowspan": 6
         }
       ]
     }
@@ -140,9 +145,16 @@ The real, per-device screens/tiles are published as a **retained** JSON message 
 Each screen becomes its own `Page`, switchable via tabs in the systray — add more entries to
 `"screens"` for more than one. Each tile entry addresses `dashboard.grid`'s 16-column grid
 (`col`/`row`/`colspan`/`rowspan` — 4 is a "normal" 1-tile size, i.e. `dashboard.grid.STANDARD_SPAN`)
-and picks a `type` of `toggle`, `sensor`, `scene`, or `datetime`; `sensor` tiles' `thresholds` are
-`[upper_bound, *_SCALE]` pairs resolved against `dashboard/palette.py`. Republishing a new retained
-message at any time (no reboot needed) swaps the device's screens live.
+and picks a `type` of `toggle`, `sensor`, `scene`, `datetime`, or `weather`; `sensor` tiles'
+`thresholds` are `[upper_bound, *_SCALE]` pairs resolved against `dashboard/palette.py`. `weather`
+tiles show temperature + label always, plus an MDI weather icon
+(`dashboard/weather_icons.py`) — except at a 4-column-wide (`colspan: 4`) size, which drops the icon
+and matches a `sensor` tile's layout instead, since there isn't room for both; wider sizes (e.g.
+`colspan: 8` or `16`) put a half-size icon beside the temperature. `unit` is an optional display-only
+suffix (e.g. `"F"` or `"C"`) appended after the degree symbol — it's purely cosmetic, the `/state`
+payload's `temperature` field is unitless as far as the
+firmware is concerned, so send whatever unit you want displayed and label it accordingly. Republishing
+a new retained message at any time (no reboot needed) swaps the device's screens live.
 
 ### 4. Wire up the Node-RED bridge
 
@@ -153,6 +165,13 @@ real HA entities and broker, and set the topic strings in each `mqtt out`/`mqtt 
 slugs used in the screens/tiles config you publish (see "Declare your tiles" above). The flow's own
 `info` tab documents the quirks this bridge design works around (event payload shape, JSONata data
 fields for `api-call-service`, etc.).
+
+For a `weather` tile, add your own `weather.*` entity node (not included in the shipped flow) and a
+JSONata `change`/`function` node that flattens its state + attributes into
+`{"condition": msg.payload.state, "temperature": msg.payload.data.attributes.temperature, "humidity": msg.payload.data.attributes.humidity}`
+before the `mqtt out` node — `condition` is HA's own `weather.*` state string (`sunny`, `cloudy`,
+`rainy`, ...), `temperature`/`humidity` are attributes, not the state. `humidity` is optional — omit
+it (or send `null`) if your weather entity doesn't report one.
 
 #### Publishing this device's config
 
