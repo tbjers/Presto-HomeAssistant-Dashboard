@@ -146,3 +146,8 @@ tasks:
     desc: Regenerate dashboard/icons.py flattened point data from the mdi SVG path source
     cmds:
       - uv run --with svgpathtools python scripts/flatten_icon.py
+
+  logo:flatten:
+    desc: Regenerate dashboard/logo.py from dashboard/assets/logo.png
+    cmds:
+      - uv run --with pillow python scripts/flatten_logo.py
