@@ -54,7 +54,7 @@ copied as-is from the upstream repo). Listed here anyway since `dashboard/weathe
 where they came from and how to regenerate them if MDI's glyphs change:
 
 Files:
-- `dashboard/icons.py` (mdi-home-assistant)
+- `dashboard/icons.py` (mdi-home-assistant, mdi-power)
 - `dashboard/weather_icons.py` (mdi-weather-\*, see `scripts/flatten_weather_icons.py`'s
   `CONDITION_TO_ICON` for the condition -> icon mapping)
 

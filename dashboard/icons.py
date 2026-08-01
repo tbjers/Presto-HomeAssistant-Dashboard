@@ -7,10 +7,11 @@ Icon path data for on-device vector rendering.
 picovector.Polygon.path() on this device only accepts a flat list of
 straight-line (x, y) points -- unlike browser/desktop SVG renderers, it does
 not parse SVG path syntax and cannot draw curves directly. HOME_ASSISTANT_OUTLINE
-below was produced by flattening the curved/arc segments of the official
-mdi-home-assistant glyph (24x24 viewBox, from
-https://github.com/Templarian/MaterialDesign, Apache-2.0) into straight
-edges with svgpathtools -- see scripts/flatten_icon.py to regenerate.
+and MDI_POWER_OUTLINE below were produced by flattening the curved/arc
+segments of the official mdi-home-assistant and mdi-power glyphs (24x24
+viewBox, from https://github.com/Templarian/MaterialDesign, Apache-2.0)
+into straight edges with svgpathtools -- see scripts/flatten_icon.py to
+regenerate.
 
 Coordinates are in the icon's original 24x24 viewBox space; callers
 scale/translate them to screen pixels at draw time (see dashboard/splash.py).
@@ -63,3 +64,31 @@ HOME_ASSISTANT_DOTS = [
 
 # The viewBox the coordinates above are expressed in.
 HOME_ASSISTANT_VIEWBOX = 24
+
+# The on/off ring -- straight edges plus arcs, so it needs the point-by-point
+# flattening scripts/flatten_icon.py does.
+MDI_POWER_OUTLINE = [
+    (15.11, 6.89), (15.73, 7.32), (16.29, 7.83), (16.78, 8.4), (17.2, 9.03),
+    (17.54, 9.71), (17.79, 10.43), (17.95, 11.2), (18.0, 12.0), (17.88, 13.17),
+    (17.54, 14.3), (16.99, 15.33), (16.24, 16.24), (15.33, 16.99), (14.3, 17.54),
+    (13.17, 17.88), (12.0, 18.0), (10.83, 17.88), (9.7, 17.54), (8.67, 16.99),
+    (7.76, 16.24), (7.01, 15.33), (6.46, 14.3), (6.12, 13.17), (6.0, 12.0),
+    (6.05, 11.2), (6.21, 10.43), (6.46, 9.71), (6.8, 9.02), (7.21, 8.39),
+    (7.7, 7.82), (8.26, 7.32), (8.88, 6.88), (7.44, 5.44), (6.7, 6.02),
+    (6.03, 6.69), (5.44, 7.43), (4.94, 8.24), (4.54, 9.11), (4.25, 10.03),
+    (4.06, 11.0), (4.0, 12.0), (4.15, 13.56), (4.61, 15.06), (5.35, 16.44),
+    (6.34, 17.66), (7.56, 18.65), (8.94, 19.39), (10.44, 19.85), (12.0, 20.0),
+    (13.56, 19.85), (15.06, 19.39), (16.44, 18.65), (17.66, 17.66), (18.65, 16.44),
+    (19.39, 15.06), (19.85, 13.56), (20.0, 12.0), (19.94, 11.0), (19.75, 10.03),
+    (19.46, 9.11), (19.06, 8.24), (18.56, 7.43), (17.98, 6.69), (17.3, 6.02),
+    (16.56, 5.44),
+]
+
+# (x, y, width, height) -- the vertical stem below the ring. Confirmed to be
+# an exact axis-aligned rectangle against the source path (only H/V line
+# commands, no curves), so it's drawn at runtime with Polygon.rectangle()
+# rather than needing flattened points.
+MDI_POWER_STEM_RECT = (11, 3, 2, 10)
+
+# The viewBox the coordinates above are expressed in.
+MDI_POWER_VIEWBOX = 24

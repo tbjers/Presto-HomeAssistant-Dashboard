@@ -492,7 +492,7 @@ class DimmableLightTile(Tile, Control):
     def _open_modal(self):
         modal = LightBrightnessModal(
             self.domain, self.slug, self.label, self._mqtt, self._pens,
-            initial_brightness=self._brightness,
+            initial_brightness=self._brightness, initial_state=self._state,
         )
         self._window_manager.show_modal_page(modal)
 

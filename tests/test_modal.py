@@ -1,15 +1,23 @@
 """
-Tests for dashboard.modal: SliderControl, DetailModalPage, LightBrightnessModal.
+Tests for dashboard.modal: SliderControl, VerticalSliderControl, PowerButton,
+DetailModalPage, LightBrightnessModal.
 """
 
 from unittest import mock
 
+import picovector
 import pytest
 
 from tmos import Region
 
-from dashboard import palette, topics
-from dashboard.modal import DetailModalPage, LightBrightnessModal, SliderControl
+from dashboard import grid, icons, palette, topics
+from dashboard.modal import (
+    DetailModalPage,
+    LightBrightnessModal,
+    PowerButton,
+    SliderControl,
+    VerticalSliderControl,
+)
 
 
 def _touch(factory, state, x=0, y=0):
@@ -22,6 +30,17 @@ def _touch(factory, state, x=0, y=0):
 
 def _pens():
     return palette.PenCache(mock.Mock())
+
+
+def _reset_vector_mocks():
+    # Polygon()/PicoVector() are Mock classes shared across the whole test
+    # session (see tests/conftest.py) -- reset their recorded calls so
+    # assertions here don't pick up state from other tests (same idiom as
+    # tests/test_splash.py's _os() helper).
+    picovector.Polygon.reset_mock()
+    picovector.Polygon.return_value.reset_mock()
+    picovector.PicoVector.reset_mock()
+    picovector.PicoVector.return_value.reset_mock()
 
 
 class TestSliderControlDragging:
@@ -141,6 +160,175 @@ class TestSliderControlDraw:
         assert display.rectangle.call_count == 1  # only the track background
 
 
+class TestVerticalSliderControlDragging:
+    def test_touch_near_top_gives_a_high_value(self, mock_touch_factory):
+        region = Region(0, 0, 40, 200)
+        slider = VerticalSliderControl(region, 0, 255, 0, _pens())
+
+        slider.process_touch_state(_touch(mock_touch_factory, True, x=10, y=0))
+
+        assert slider.value == 255
+
+    def test_touch_near_bottom_gives_a_low_value(self, mock_touch_factory):
+        region = Region(0, 0, 40, 200)
+        slider = VerticalSliderControl(region, 0, 255, 255, _pens())
+
+        # y=199, not 200 -- is_within() treats the region as [y, y+height),
+        # so y=200 is just outside and would never start a drag.
+        slider.process_touch_state(_touch(mock_touch_factory, True, x=10, y=199))
+
+        assert slider.value == pytest.approx(1.275)
+
+    def test_touch_at_region_midpoint_gives_midpoint_value(self, mock_touch_factory):
+        region = Region(0, 0, 40, 200)
+        slider = VerticalSliderControl(region, 0, 255, 0, _pens())
+
+        slider.process_touch_state(_touch(mock_touch_factory, True, x=10, y=100))
+
+        assert slider.value == pytest.approx(127.5)
+
+    def test_touch_must_start_inside_region_to_begin_a_drag(self, mock_touch_factory):
+        region = Region(100, 100, 40, 200)
+        slider = VerticalSliderControl(region, 0, 255, 50, _pens())
+
+        slider.process_touch_state(_touch(mock_touch_factory, True, x=0, y=0))
+
+        assert slider.value == 50  # unchanged -- touch started outside
+
+
+class TestVerticalSliderControlDraw:
+    def test_draw_paints_rounded_track_and_fill_with_no_handle(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 127, pens)
+
+        slider.draw(display, theme=mock.Mock())
+
+        polygon = picovector.Polygon.return_value
+        vector = picovector.PicoVector.return_value
+        assert polygon.rectangle.call_count == 2  # track + fill
+        assert vector.draw.call_count == 2
+        display.circle.assert_not_called()  # no handle
+
+    def test_draw_fills_green_when_is_on(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        display.create_pen.side_effect = lambda *rgb: rgb  # distinguish pens by color
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 127, pens)
+        slider.is_on = True
+
+        slider.draw(display, theme=mock.Mock())
+
+        pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
+        assert palette.GREEN_400 in pen_calls
+        assert palette.GRAY_700 not in pen_calls
+
+    def test_draw_fills_gray_when_not_is_on(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        display.create_pen.side_effect = lambda *rgb: rgb  # distinguish pens by color
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 127, pens)
+        slider.is_on = False
+
+        slider.draw(display, theme=mock.Mock())
+
+        pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
+        assert palette.GRAY_700 in pen_calls
+        assert palette.GREEN_400 not in pen_calls
+
+    def test_draw_at_minimum_value_skips_the_fill(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 0, pens)
+
+        slider.draw(display, theme=mock.Mock())
+
+        polygon = picovector.Polygon.return_value
+        assert polygon.rectangle.call_count == 1  # only the track
+
+    def test_draw_at_maximum_value_fill_matches_track_geometry(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(5, 10, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 255, pens)
+
+        slider.draw(display, theme=mock.Mock())
+
+        polygon = picovector.Polygon.return_value
+        track_call, fill_call = polygon.rectangle.call_args_list
+        assert track_call.args == (5, 10, 40, 200)
+        assert fill_call.args == (5, 10, 40, 200)  # fill covers the full track
+
+    def test_draw_reuses_cached_vector_and_track_polygon_across_frames(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 127, pens)
+
+        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=mock.Mock())
+
+        # PicoVector()/the track's Polygon() are each constructed once and
+        # reused -- Polygon() is called 3 times total (1 track + 2 fills),
+        # not 4.
+        assert picovector.PicoVector.call_count == 1
+        assert picovector.Polygon.call_count == 3
+
+
+class TestPowerButtonDraw:
+    def test_draw_uses_on_colors_when_is_on(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 114, 53)
+        pens = palette.PenCache(display)
+        button = PowerButton(region, pens)
+        button.is_on = True
+
+        button.draw(display, theme=mock.Mock())
+
+        pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
+        assert pens.get(palette.GREEN_400) in pen_calls
+        assert pens.get(palette.GREEN_900) in pen_calls
+
+    def test_draw_uses_off_colors_when_not_is_on(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 114, 53)
+        pens = palette.PenCache(display)
+        button = PowerButton(region, pens)
+        button.is_on = False
+
+        button.draw(display, theme=mock.Mock())
+
+        pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
+        assert pens.get(palette.GRAY_900) in pen_calls
+        assert pens.get(palette.GRAY_600) in pen_calls
+
+    def test_icon_polygon_built_from_outline_and_stem(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 114, 53)
+        button = PowerButton(region, _pens())
+
+        # Polygon() is a mocked class returning the same shared instance
+        # every call (see tests/conftest.py), so bg_polygon and icon_polygon
+        # are literally the same object here -- .rectangle() is called
+        # twice total (once for the background, once for the icon's stem).
+        polygon = picovector.Polygon.return_value
+        assert len(polygon.path.call_args.args) == len(icons.MDI_POWER_OUTLINE)
+        assert polygon.rectangle.call_count == 2  # background + stem
+
+
 class TestDetailModalPage:
     def _window_manager(self):
         window_manager = mock.Mock()
@@ -220,27 +408,64 @@ class TestLightBrightnessModal:
 
         assert modal._slider.value == 128
 
+    def test_setup_positions_slider_power_and_label_via_the_grid(self):
+        region = Region(0, 0, 480, 480)
+        modal = LightBrightnessModal("light", "ceiling_light", "CEILING", mock.Mock(), _pens())
+        modal.setup(region, self._window_manager())
+
+        assert modal._slider.region == grid.cell_region(region, col=2, row=2, colspan=4, rowspan=10)
+        assert modal._power_button.region == grid.cell_region(
+            region, col=2, row=12, colspan=4, rowspan=2
+        )
+        assert modal._label_region == grid.cell_region(region, col=8, row=2, colspan=7, rowspan=10)
+        # The label group shares the slider's row/rowspan, which is what
+        # makes vertically-centering it against the slider trivial.
+        assert modal._label_region.y == modal._slider.region.y
+        assert modal._label_region.height == modal._slider.region.height
+        # At least one full empty grid column between the slider and the
+        # label group.
+        gap = modal._label_region.x - (modal._slider.region.x + modal._slider.region.width)
+        assert gap >= grid.tile_size(480.0) + grid.GAP
+
+    def test_setup_adds_close_button_slider_and_power_button(self):
+        modal = LightBrightnessModal("light", "ceiling_light", "CEILING", mock.Mock(), _pens())
+        modal.setup(Region(0, 0, 480, 480), self._window_manager())
+
+        assert len(modal._controls) == 3
+
     def test_dragging_and_releasing_the_slider_publishes_the_light_command(self, mock_touch_factory):
         mqtt = mock.Mock()
         modal = LightBrightnessModal("light", "ceiling_light", "CEILING", mqtt, _pens())
         modal.setup(Region(0, 0, 480, 480), self._window_manager())
 
         slider_region = modal._slider.region
-        modal._slider.process_touch_state(  # start drag, inside
-            _touch(mock_touch_factory, True, x=slider_region.x, y=slider_region.y + 5)
-        )
-        end_x = slider_region.x + slider_region.width + 999  # drag to max, clamped
-        modal._slider.process_touch_state(
-            _touch(mock_touch_factory, True, x=end_x, y=slider_region.y + 5)
+        touch_x = slider_region.x + 5
+        modal._slider.process_touch_state(  # start drag, inside, near the top
+            _touch(mock_touch_factory, True, x=touch_x, y=slider_region.y)
         )
         modal._slider.process_touch_state(
-            _touch(mock_touch_factory, False, x=end_x, y=slider_region.y + 5)
+            _touch(mock_touch_factory, False, x=touch_x, y=slider_region.y)
         )
 
         mqtt.publish.assert_called_once_with(
             topics.set_topic("light", "ceiling_light"),
             topics.format_light_command(True, brightness=255),
         )
+
+    def test_dragging_updates_display_brightness_live_without_publishing(self, mock_touch_factory):
+        mqtt = mock.Mock()
+        modal = LightBrightnessModal("light", "ceiling_light", "CEILING", mqtt, _pens())
+        modal.setup(Region(0, 0, 480, 480), self._window_manager())
+
+        slider_region = modal._slider.region
+        touch_x = slider_region.x + 5
+        modal._slider.process_touch_state(
+            _touch(mock_touch_factory, True, x=touch_x, y=slider_region.y)
+        )
+
+        assert modal._display_brightness == 255
+        assert modal._is_on is True
+        mqtt.publish.assert_not_called()  # on_change must never publish
 
     def test_commit_marks_page_as_needing_update(self, mock_touch_factory):
         modal = LightBrightnessModal("light", "ceiling_light", "CEILING", mock.Mock(), _pens())
@@ -257,9 +482,71 @@ class TestLightBrightnessModal:
 
         assert modal.needs_update is True
 
-    def test_setup_also_adds_the_inherited_close_button(self):
-        modal = LightBrightnessModal("light", "ceiling_light", "CEILING", mock.Mock(), _pens())
+    def test_power_toggle_from_on_publishes_off_with_no_brightness(self):
+        mqtt = mock.Mock()
+        modal = LightBrightnessModal(
+            "light", "ceiling_light", "CEILING", mqtt, _pens(), initial_state=True
+        )
         modal.setup(Region(0, 0, 480, 480), self._window_manager())
 
-        # close button (from DetailModalPage.setup) + slider
-        assert len(modal._controls) == 2
+        modal._power_button.on_button_up()
+
+        assert modal._is_on is False
+        mqtt.publish.assert_called_once_with(
+            topics.set_topic("light", "ceiling_light"), topics.format_light_command(False)
+        )
+
+    def test_power_toggle_from_off_publishes_on_with_no_brightness(self):
+        mqtt = mock.Mock()
+        modal = LightBrightnessModal(
+            "light", "ceiling_light", "CEILING", mqtt, _pens(), initial_state=False
+        )
+        modal.setup(Region(0, 0, 480, 480), self._window_manager())
+
+        modal._power_button.on_button_up()
+
+        assert modal._is_on is True
+        mqtt.publish.assert_called_once_with(
+            topics.set_topic("light", "ceiling_light"), topics.format_light_command(True)
+        )
+
+    def test_power_toggle_marks_page_as_needing_update(self):
+        modal = LightBrightnessModal(
+            "light", "ceiling_light", "CEILING", mock.Mock(), _pens(), initial_state=False
+        )
+        modal.setup(Region(0, 0, 480, 480), self._window_manager())
+        modal.needs_update = False
+
+        modal._power_button.on_button_up()
+
+        assert modal.needs_update is True
+
+    def test_update_syncs_power_button_is_on_from_modal_state(self):
+        modal = LightBrightnessModal(
+            "light", "ceiling_light", "CEILING", mock.Mock(), _pens(), initial_state=False
+        )
+        modal.setup(Region(0, 0, 480, 480), self._window_manager())
+
+        modal._is_on = True
+        modal._update(os=mock.Mock())
+
+        assert modal._power_button.is_on is True
+        assert modal._slider.is_on is True
+
+    @pytest.mark.parametrize(
+        "is_on, brightness, expected",
+        [
+            (False, 128, "OFF"),
+            (True, 0, "0%"),
+            (True, 1, "0%"),  # rounds down -- "OFF" is reserved for is_on state, not brightness
+            (True, 128, "50%"),
+            (True, 255, "100%"),
+        ],
+    )
+    def test_percentage_text(self, is_on, brightness, expected):
+        modal = LightBrightnessModal(
+            "light", "ceiling_light", "CEILING", mock.Mock(), _pens(),
+            initial_brightness=brightness, initial_state=is_on,
+        )
+
+        assert modal._percentage_text() == expected
