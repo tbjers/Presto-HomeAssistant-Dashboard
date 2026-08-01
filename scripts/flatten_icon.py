@@ -7,20 +7,23 @@ Host-only codegen tool -- NOT run on-device, and NOT part of the app.
 Flattens an SVG path's curves/arcs into straight-line points, since
 picovector.Polygon.path() on the Presto only accepts a flat list of
 (x, y) points -- no SVG path syntax, no curves. Used to produce
-dashboard/icons.py's HOME_ASSISTANT_OUTLINE from the official
-mdi-home-assistant glyph (24x24 viewBox, from
-https://github.com/Templarian/MaterialDesign, Apache-2.0).
+dashboard/icons.py's HOME_ASSISTANT_OUTLINE and MDI_POWER_OUTLINE from
+the official mdi-home-assistant and mdi-power glyphs (24x24 viewBox,
+from https://github.com/Templarian/MaterialDesign, Apache-2.0).
 
 svgpathtools isn't (and shouldn't become) a project dependency -- it's
 only ever needed for this one-off regeneration. Run with:
 
     uv run --with svgpathtools python scripts/flatten_icon.py
 
-The three small "signal dot" subpaths in the source glyph are exact
-circles (verified against their start/end coordinates), so they're
-intentionally excluded here and instead drawn at runtime with
+The three small "signal dot" subpaths in the mdi-home-assistant glyph
+are exact circles (verified against their start/end coordinates), so
+they're intentionally excluded here and instead drawn at runtime with
 Polygon.circle() -- see dashboard/icons.py's HOME_ASSISTANT_DOTS and
-dashboard/splash.py.
+dashboard/splash.py. Likewise, mdi-power's second subpath (the vertical
+stem) is an exact axis-aligned rectangle (only H/V line commands, no
+curves) -- see dashboard/icons.py's MDI_POWER_STEM_RECT, drawn at
+runtime with Polygon.rectangle() instead of being flattened here.
 """
 
 from svgpathtools import parse_path
@@ -39,15 +42,20 @@ HOME_ASSISTANT_D = (
     "12.9,7.3 12.9,7.8C12.9,8.3 12.5,8.7 12,8.7C11.5,8.7 11.1,8.3 11.1,7.8C11.1,7.3 11.5,6.9 12,6.9Z"
 )
 
+# The mdi-power path `d` attribute, verbatim. Two disjoint subpaths: the
+# on/off ring (arcs+lines) and the vertical stem (an exact axis-aligned
+# rectangle, x:11..13, y:3..13 -- see this module's docstring).
+POWER_D = (
+    "M16.56,5.44L15.11,6.89C16.84,7.94 18,9.83 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12C6,9.83 "
+    "7.16,7.94 8.88,6.88L7.44,5.44C5.36,6.88 4,9.28 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12C20,"
+    "9.28 18.64,6.88 16.56,5.44M13,3H11V13H13"
+)
+
 # How many straight-line segments to approximate each curve/arc with.
 CURVE_STEPS = 8
 
 
-def flatten_outline():
-    """Flattens just the housing/antenna outline (the path's first
-    subpath) -- the three dot subpaths are exact circles, handled
-    separately at runtime instead (see this module's docstring)."""
-    subpath = parse_path(HOME_ASSISTANT_D).continuous_subpaths()[0]
+def _flatten_subpath(subpath):
     points = []
     for segment in subpath:
         steps = 1 if type(segment).__name__ == "Line" else CURVE_STEPS
@@ -60,6 +68,27 @@ def flatten_outline():
     return points
 
 
+def flatten_outline():
+    """Flattens just the housing/antenna outline (the path's first
+    subpath) -- the three dot subpaths are exact circles, handled
+    separately at runtime instead (see this module's docstring)."""
+    subpath = parse_path(HOME_ASSISTANT_D).continuous_subpaths()[0]
+    return _flatten_subpath(subpath)
+
+
+def flatten_power_ring():
+    """Flattens just the on/off ring (the path's first subpath) -- the
+    stem is an exact rectangle, handled separately at runtime instead
+    (see this module's docstring)."""
+    subpath = parse_path(POWER_D).continuous_subpaths()[0]
+    return _flatten_subpath(subpath)
+
+
 if __name__ == "__main__":
+    print("HOME_ASSISTANT_OUTLINE:")
     for x, y in flatten_outline():
+        print(f"    ({x}, {y}),")
+
+    print("\nMDI_POWER_OUTLINE:")
+    for x, y in flatten_power_ring():
         print(f"    ({x}, {y}),")

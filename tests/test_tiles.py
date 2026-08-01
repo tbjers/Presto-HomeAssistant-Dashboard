@@ -345,6 +345,7 @@ class TestDimmableLightTile:
         assert modal.label == "CEILING"
         assert modal._mqtt is mqtt
         assert modal._initial_brightness == 90
+        assert modal._is_on is True
 
     def test_draw_reflects_on_state(self):
         display = mock.Mock()
