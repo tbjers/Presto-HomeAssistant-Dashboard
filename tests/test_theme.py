@@ -30,11 +30,10 @@ def test_pens_are_converted_from_compresto_rgb_tuples(mock_presto_module):
 
     display.create_pen.assert_any_call(*palette.GRAY_950)
     display.create_pen.assert_any_call(*palette.GRAY_200)
-    display.create_pen.assert_any_call(*palette.GRAY_900)
     display.create_pen.assert_any_call(*palette.ROSE_600)
     assert theme.background_pen == palette.GRAY_950
     assert theme.foreground_pen == palette.GRAY_200
-    assert theme.secondary_background_pen == palette.GRAY_900
+    assert theme.secondary_background_pen == palette.GRAY_950
     assert theme.error_pen == palette.ROSE_600
 
 
@@ -122,11 +121,18 @@ def test_hyphen_em_dash_and_slash_are_mapped_glyphs(mock_presto_module):
         assert char in font5x5.GLYPHS
 
 
-def test_draw_systray_closes_left_and_right_borders(mock_presto_module):
-    # Regression check for the systray's left edge reading as an open/
-    # "clipped" border: DefaultTheme.draw_systray only draws top/bottom
-    # lines, so the leading app-switcher accessory (which has no fill of
-    # its own) had no border on its left side at all.
+def test_draw_systray_closes_all_four_borders_as_1px_rectangles(mock_presto_module):
+    # Regression check, two incidents:
+    # 1. The systray's left edge read as an open/"clipped" border --
+    #    DefaultTheme.draw_systray (tmos_ui.py) only draws top/bottom
+    #    lines, so the leading app-switcher accessory (which has no fill
+    #    of its own) had no border on its left side at all.
+    # 2. Those top/bottom borders, drawn via display.line(), rendered
+    #    visibly thicker on real hardware than the 1px display.rectangle()
+    #    outline draw_button_frame/draw_app_switcher_button use --
+    #    confirmed on-device right where the hamburger button's own
+    #    outline sits flush against the systray's bottom border. All four
+    #    sides are drawn as explicit 1px rectangles now, not lines.
     theme = CompressoTheme()
     display = _mock_display()
     theme.setup(display, dpi_scale_factor=2)
@@ -134,11 +140,47 @@ def test_draw_systray_closes_left_and_right_borders(mock_presto_module):
     region = Region(0, 400, 480, 53)
     theme.draw_systray(display, region, adjoined=0)
 
-    left_x = region.x
-    right_x = region.x + region.width - 1
-    bottom_y = region.y + region.height - 1
-    display.line.assert_any_call(left_x, region.y, left_x, bottom_y)
-    display.line.assert_any_call(right_x, region.y, right_x, bottom_y)
+    x, y, w, h = region
+    display.line.assert_not_called()
+    display.rectangle.assert_any_call(x, y, w, 1)  # top
+    display.rectangle.assert_any_call(x, y + h - 1, w, 1)  # bottom
+    display.rectangle.assert_any_call(x, y, 1, h)  # left
+    display.rectangle.assert_any_call(x + w - 1, y, 1, h)  # right
+
+
+def test_draw_systray_page_button_frame_leaves_a_gap_above_the_border(mock_presto_module):
+    # Regression check: this region shares the systray's own y/height, so
+    # its bottom row is the exact same row draw_systray() draws its 1px
+    # border on. An underline flush against that row merged into it,
+    # reading as the systray border doubling in thickness specifically
+    # under the current page's tab -- confirmed on real hardware. The
+    # underline must land above a gap, not touching the border row.
+    theme = CompressoTheme()
+    display = _mock_display()
+    theme.setup(display, dpi_scale_factor=2)
+
+    region = Region(50, 400, 100, 53)
+    theme.draw_systray_page_button_frame(display, region, is_pressed=True, adjoined=0)
+
+    x, y, w, h = region
+    border_row = y + h - 1
+    gap = 2
+    underline_height = 2
+    display.rectangle.assert_called_once_with(
+        x, border_row - gap - underline_height, w, underline_height
+    )
+
+
+def test_draw_systray_page_button_frame_draws_nothing_when_not_current(mock_presto_module):
+    theme = CompressoTheme()
+    display = _mock_display()
+    theme.setup(display, dpi_scale_factor=2)
+    display.rectangle.reset_mock()
+
+    region = Region(50, 400, 100, 53)
+    theme.draw_systray_page_button_frame(display, region, is_pressed=False, adjoined=0)
+
+    display.rectangle.assert_not_called()
 
 
 def test_draw_app_switcher_button_gives_1px_more_left_inset_than_right(mock_presto_module):
@@ -158,7 +200,9 @@ def test_draw_app_switcher_button_gives_1px_more_left_inset_than_right(mock_pres
     spacing = 3 * theme.dpi_scale_factor
     expected_x = region.x + spacing + 1
     expected_width = region.width - (spacing + 1) - spacing
-    for call in display.rectangle.call_args_list:
+    # First two calls are the button's outline (full rect + inset rect);
+    # the remaining three are the hamburger bars themselves.
+    for call in display.rectangle.call_args_list[2:]:
         x, _, width, _ = call.args
         assert x == expected_x
         assert width == expected_width
@@ -215,6 +259,14 @@ class TestFontChoiceSetup:
         assert theme.font == "bitmap8"
         assert theme.base_text_height == font5x5.CELL_HEIGHT * theme.base_font_scale
 
+    # Atkinson/Inter are temporarily removed from FONT_CHOICES (see
+    # dashboard/theme.py's FONT_CHOICES comment -- loading a PicoVector
+    # .af font hung real hardware), so setting theme.font_choice to either
+    # string no longer resolves to a path at all -- these tests are
+    # skipped rather than rewritten to fake the vector path, since there's
+    # nothing meaningful left to exercise until the gate is lifted (undo
+    # by restoring the FONT_CHOICES entries; no test changes needed).
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- FONT_CHOICES has only 'default' right now")
     @pytest.mark.parametrize("choice", ["atkinson", "inter"])
     def test_vector_font_choice_sets_font_path_and_pixel_size(self, mock_presto_module, choice):
         _reset_vector_mocks()
@@ -231,8 +283,20 @@ class TestFontChoiceSetup:
         # multiplier would render the font unreadably small.
         assert theme.base_font_scale == CompressoTheme.VECTOR_FONT_SIZE
         vector = picovector.PicoVector.return_value
-        vector.set_font.assert_called_with(theme.font, CompressoTheme.VECTOR_FONT_SIZE)
+        # Regression check: Theme.setup() (tmos_ui.py) makes its own
+        # internal set_font() call using whatever base_font_scale holds at
+        # that point, before CompressoTheme's own
+        # _configure_font_metrics() gets a chance to set it -- checking
+        # only the *last* call (assert_called_with) let a real bug through
+        # where that first, internal call used size 1 (DefaultTheme's
+        # bitmap-scale default) instead of VECTOR_FONT_SIZE, which hung
+        # real hardware. Every call must use the right size, not just the
+        # final one.
+        assert vector.set_font.call_count >= 1
+        for call in vector.set_font.call_args_list:
+            assert call.args == (theme.font, CompressoTheme.VECTOR_FONT_SIZE)
 
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- FONT_CHOICES has only 'default' right now")
     def test_vector_font_choice_uses_vector_tuned_metrics_not_font5x5s(self, mock_presto_module):
         _reset_vector_mocks()
         theme = CompressoTheme()
@@ -261,6 +325,7 @@ class TestTextDispatch:
 
         assert display.rectangle.call_count == font5x5.CELL_HEIGHT  # font.draw_text path
 
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- FONT_CHOICES has only 'default' right now")
     def test_vector_choice_delegates_to_picovector_text(self, mock_presto_module):
         _reset_vector_mocks()
         theme = CompressoTheme()
@@ -286,6 +351,7 @@ class TestTextDispatch:
         assert width == expected_units * 6
         assert height == font5x5.CELL_HEIGHT * 6
 
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- FONT_CHOICES has only 'default' right now")
     def test_vector_choice_measures_via_picovector(self, mock_presto_module):
         _reset_vector_mocks()
         theme = CompressoTheme()
@@ -300,6 +366,7 @@ class TestTextDispatch:
 
 
 class TestApplyFontChoice:
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- FONT_CHOICES has only 'default' right now")
     def test_switches_to_a_vector_font(self, mock_presto_module):
         _reset_vector_mocks()
         theme = CompressoTheme()
@@ -316,6 +383,7 @@ class TestApplyFontChoice:
             theme.font, theme.base_font_scale
         )
 
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- FONT_CHOICES has only 'default' right now")
     def test_switches_back_to_default_and_restores_bitmap_metrics(self, mock_presto_module):
         # Regression check: apply_font_choice() must re-derive
         # base_font_scale/base_text_height/base_line_height for the target

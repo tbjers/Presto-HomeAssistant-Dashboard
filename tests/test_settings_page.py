@@ -4,6 +4,8 @@ Tests for dashboard.settings_page: SettingsPage, SettingsApp.
 
 from unittest import mock
 
+import pytest
+
 from tmos import Region
 
 from dashboard import corners, grid, settings
@@ -32,16 +34,21 @@ def _saved(**overrides):
 
 class TestSettingsPageSetup:
     def test_radio_buttons_built_from_saved_settings(self):
+        # font_choice uses "default" -- currently its only valid value
+        # (Atkinson/Inter are gated off, see
+        # dashboard.settings_page.FONT_CHOICE_ORDER's comment) -- so this
+        # only confirms the font radio still builds correctly, not an
+        # override, unlike corner_style/corner_radius above.
         with mock.patch(
             "dashboard.settings_page.settings.load",
-            return_value=_saved(corner_style="blocky", corner_radius="small", font_choice="atkinson"),
+            return_value=_saved(corner_style="blocky", corner_radius="small", font_choice="default"),
         ):
             page = SettingsPage(mock.Mock())
             page.setup(Region(0, 0, 480, 480), _window_manager())
 
         assert page._style_radio.current_index == CORNER_STYLE_ORDER.index("blocky")
         assert page._radius_radio.current_index == corners.RADIUS_CHOICES.index("small")
-        assert page._font_radio.current_index == FONT_CHOICE_ORDER.index("atkinson")
+        assert page._font_radio.current_index == FONT_CHOICE_ORDER.index("default")
 
     def test_radio_button_option_labels(self):
         with mock.patch("dashboard.settings_page.settings.load", side_effect=lambda: dict(settings.DEFAULTS)):
@@ -130,6 +137,15 @@ class TestRadiusChange:
 
 
 class TestFontChange:
+    # Atkinson/Inter are temporarily gated off (see
+    # dashboard.settings_page.FONT_CHOICE_ORDER's comment -- loading a
+    # PicoVector .af font hung real hardware), leaving FONT_CHOICE_ORDER
+    # with only "default". RadioButton.set_current_index() is a no-op when
+    # called with the already-current index, so there's no longer a
+    # second option to switch to and exercise _handle_font_change's
+    # apply_font_choice()/save() call with. Re-enable both tests (no other
+    # changes needed) once the gate is lifted.
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- only one font option exists right now")
     def test_changing_font_applies_it_live_with_the_page_display(self):
         theme = mock.Mock()
         wm = _window_manager()
@@ -144,6 +160,7 @@ class TestFontChange:
         mock_save.assert_called_once()
         assert mock_save.call_args.args[0]["font_choice"] == "inter"
 
+    @pytest.mark.skip(reason="Atkinson/Inter gated off -- only one font option exists right now")
     def test_changing_font_marks_page_as_needing_update(self):
         with mock.patch("dashboard.settings_page.settings.load", side_effect=lambda: dict(settings.DEFAULTS)), \
              mock.patch("dashboard.settings_page.settings.save"):

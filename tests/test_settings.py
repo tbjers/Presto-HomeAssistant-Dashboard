@@ -28,22 +28,26 @@ class TestLoad:
     def test_saved_values_override_defaults(self, tmp_path):
         path = tmp_path / "settings.json"
         path.write_text(
-            json.dumps({"corner_style": "blocky", "corner_radius": "small", "font_choice": "inter"})
+            json.dumps({"corner_style": "blocky", "corner_radius": "small", "font_choice": "default"})
         )
 
         loaded = settings.load(str(path))
 
-        assert loaded == {"corner_style": "blocky", "corner_radius": "small", "font_choice": "inter"}
+        assert loaded == {"corner_style": "blocky", "corner_radius": "small", "font_choice": "default"}
 
     def test_partial_file_fills_in_missing_keys_from_defaults(self, tmp_path):
+        # font_choice isn't used as the example value here -- "default" is
+        # currently its only valid choice (see dashboard.settings.
+        # VALID_FONT_CHOICES's comment), so it can't demonstrate an
+        # override the way corner_style can.
         path = tmp_path / "settings.json"
-        path.write_text(json.dumps({"font_choice": "atkinson"}))
+        path.write_text(json.dumps({"corner_style": "blocky"}))
 
         loaded = settings.load(str(path))
 
-        assert loaded["font_choice"] == "atkinson"
-        assert loaded["corner_style"] == settings.DEFAULTS["corner_style"]
+        assert loaded["corner_style"] == "blocky"
         assert loaded["corner_radius"] == settings.DEFAULTS["corner_radius"]
+        assert loaded["font_choice"] == settings.DEFAULTS["font_choice"]
 
     def test_unknown_corner_style_falls_back_to_default(self, tmp_path):
         # A hand-edited or version-skewed settings.json must not crash
@@ -82,23 +86,25 @@ class TestSave:
         path = tmp_path / "settings.json"
 
         settings.save(
-            {"corner_style": "blocky", "corner_radius": "medium", "font_choice": "atkinson"}, str(path)
+            {"corner_style": "blocky", "corner_radius": "medium", "font_choice": "default"}, str(path)
         )
 
         assert settings.load(str(path)) == {
             "corner_style": "blocky",
             "corner_radius": "medium",
-            "font_choice": "atkinson",
+            "font_choice": "default",
         }
 
     def test_save_merges_partial_dict_over_defaults(self, tmp_path):
+        # font_choice isn't used as the example value here -- see
+        # test_partial_file_fills_in_missing_keys_from_defaults above.
         path = tmp_path / "settings.json"
 
-        merged = settings.save({"font_choice": "inter"}, str(path))
+        merged = settings.save({"corner_radius": "medium"}, str(path))
 
-        assert merged["font_choice"] == "inter"
+        assert merged["corner_radius"] == "medium"
         assert merged["corner_style"] == settings.DEFAULTS["corner_style"]
-        assert merged["corner_radius"] == settings.DEFAULTS["corner_radius"]
+        assert merged["font_choice"] == settings.DEFAULTS["font_choice"]
 
     def test_save_drops_unknown_keys(self, tmp_path):
         path = tmp_path / "settings.json"

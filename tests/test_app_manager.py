@@ -6,9 +6,10 @@ from unittest import mock
 
 import pytest
 
+from tmos import Region
 from tmos_apps import App
 
-from dashboard.app_manager import DashboardAppManager
+from dashboard.app_manager import DashboardAppManager, DashboardAppManagerAccessory
 
 
 class _FakeApp(App):
@@ -94,3 +95,31 @@ class TestOpenSwitcher:
         wm.current_page = None
 
         switcher.on_app_changed(dash)  # should not raise
+
+
+class TestSystrayAccessory:
+    def test_uses_the_flush_dashboard_accessory(self):
+        # Regression check: DashboardAppManager must register
+        # DashboardAppManagerAccessory (dashboard/app_manager.py), not the
+        # vendored AppManagerAccessory (tmos_apps.py) AppManager.__init__
+        # would otherwise use -- see that class's docstring for why (a
+        # visible gap between the hamburger button's own outline and the
+        # systray's border).
+        wm = _window_manager()
+
+        DashboardAppManager(wm)
+
+        accessory = wm.add_systray_accessory.call_args.args[0]
+        assert isinstance(accessory, DashboardAppManagerAccessory)
+
+    def test_button_region_is_flush_with_the_full_accessory_region(self):
+        # AppManagerAccessory.setup() (tmos_apps.py) insets the button by
+        # 2px; DashboardAppManagerAccessory must not, so its own outline
+        # (dashboard.theme.CompressoTheme.draw_app_switcher_button) sits
+        # flush against draw_systray()'s border instead of leaving a gap.
+        accessory = DashboardAppManagerAccessory()
+        region = Region(0, 450, 30, 30)
+
+        accessory.setup(region, _window_manager())
+
+        assert accessory._controls[0].region == region
