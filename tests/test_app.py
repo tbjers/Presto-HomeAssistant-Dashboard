@@ -82,6 +82,25 @@ class TestPagesAndTasks:
 
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
+    def test_pages_forces_needs_setup_on_every_call(self, mqtt_cls, page_cls):
+        # Regression check: AppManager.set_current_app() (tmos_apps.py)
+        # reuses these same page instances every time this app is made
+        # current again, and WindowManager.remove_page()'s teardown() call
+        # (when switching away) wipes their tile state without any vendored
+        # code ever resetting page.needs_setup back to True -- so pages()
+        # must force it itself, every call, or a page switched away from
+        # and back to stays permanently blank. Confirmed on real hardware.
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=mock.Mock())
+        page = page_cls.return_value
+        page.needs_setup = False  # simulate a page that's already been torn down once
+
+        app.pages()
+
+        assert page.needs_setup is True
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
     def test_pages_returns_multiple_pages_for_multiple_default_screens(self, mqtt_cls, page_cls):
         config = _config(
             DEFAULT_SCREENS=[

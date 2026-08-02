@@ -44,6 +44,64 @@ base_text_height/base_line_height, however, describe the *old* 8-row
 bitmap8 metrics (8/10) and must be re-pinned the same way padding/
 systray_height are, to reflect font5x5's actual 5-row glyph height and its
 own LINE_HEIGHT (the vertical pitch for multi-line text).
+
+Font choice: font5x5 (above) is the only font drawn until the user opens
+the new Settings app (dashboard/settings_page.py, reached via the existing
+hamburger/app-switcher systray accessory) and picks one of FONT_CHOICES'
+two PicoVector .af assets (Atkinson Hyperlegible, Inter) --
+see dashboard/settings.py for where that choice is persisted. Rather than
+building a second, separate PicoVector instance the way dashboard/modal.py's
+controls each do for their own shapes, font rendering reuses TmOS's own
+already-built-in .af loading path (tmos_ui.py's Theme.setup()/.text()/
+.measure_text(), gated on self.font.endswith(".af") -- confirmed real,
+working infrastructure, just unused by any theme in this repo until now):
+setup() sets self.font to the chosen .af path *before* calling
+super().setup(), so Theme's own dispatch logic loads it into self._vector
+and flips self._use_vector_font_rendering; text()/measure_text() below then
+only need to choose between font.draw_text/measure_text (font_choice ==
+"default") and super().text()/measure_text() (anything else) -- no
+reimplementation of TmOS's vector-font handling.
+
+font_choice must be set as an instance attribute (see
+apply_font_choice()/main.py) *before* setup() runs, since Theme.setup() is
+a one-shot (tmos_ui.py: "if self._setup_done: ...; return" on any call
+after the first) -- switching fonts later at runtime goes through
+apply_font_choice() instead, which re-does just the font-loading piece
+setup() can no longer repeat.
+
+base_font_scale means something different for each rendering path, and
+switching font_choice must switch what it's set to, not just leave
+whatever Theme.setup()'s automatic dpi-scaling left there. text_scale()
+(tmos_ui.py) computes `round(base_font_scale * rel_scale)` and hands that
+straight to either PicoGraphics' bitmap text (where it's a *multiplier* on
+an 8-row glyph -- small integers, e.g. 2) or PicoVector's
+set_font_size()/set_font() (where it's a literal *pixel* font size --
+needs to be ~16px+ to be legible, not 2-6px). Reusing font5x5's tuned
+value of 2 for a vector font would render it at ~2px: technically not
+broken, but silently unreadable. _configure_font_metrics() below picks
+between two independently-tuned sets of base_font_scale/base_text_height/
+base_line_height depending on font_choice, called from both setup() and
+apply_font_choice() so switching either direction at runtime re-derives
+the right values, not just whichever set happened to be loaded at boot.
+
+VECTOR_FONT_SIZE/_CAP_HEIGHT_RATIO/_LINE_HEIGHT_RATIO approximate font5x5's
+observed proportions (10px cap height at rel_scale=1, see above) using
+typical typographic ratios (cap-height ~0.7x font-size, line-height ~1.2x)
+since Atkinson Hyperlegible/Inter's actual metrics haven't been measured
+against real PicoVector output yet -- needs on-device tuning once that's
+possible (see scripts/settings_smoke_test.py).
+
+corner_style/corner_radius: dashboard/modal.py's VerticalSliderControl/
+PowerButton compute their actual corner radius, in px, as
+`dashboard.corners.radius_blocks(theme.corner_radius) * theme.text_scale(3)`
+-- i.e. a whole number of the same "pixel" unit dashboard.font5x5's big
+tile-value text (ValueTile/TemperatureTile/DateTimeTile, all rel_scale=3)
+already draws at, so a rounded corner reads as an integer count of the
+same visual "pixels" as the rest of this retro-styled UI, rather than an
+arbitrary unrelated px count -- and, since text_scale(3) is theme's own
+method, this stays correct automatically if font_choice switches to a
+vector font with different metrics (see dashboard/corners.py's module
+docstring for the block-count -> px mapping and the staircase geometry).
 """
 
 from tmos_ui import DefaultTheme
@@ -57,18 +115,94 @@ class CompressoTheme(DefaultTheme):
     secondary_background_pen = palette.GRAY_900
     error_pen = palette.ROSE_600
 
+    # font_choice -> .af asset path (None means the default font5x5 bitmap
+    # font, drawn via dashboard.font rather than PicoVector at all).
+    FONT_CHOICES = {
+        "default": None,
+        "atkinson": "dashboard/assets/atkinson-hyperlegible.af",
+        "inter": "dashboard/assets/inter.af",
+    }
+
+    # corner_style picks the rendering technique (smooth PicoVector
+    # antialiasing vs blocky pixel-block notches, dashboard/corners.py);
+    # corner_radius picks the size, in dashboard.corners.RADIUS_CHOICES
+    # steps -- both are orthogonal, plain instance-level knobs read
+    # directly by dashboard/modal.py's controls and
+    # dashboard/settings_page.py, not part of Theme's pen/dpi-scaling
+    # machinery. main.py overrides all three (font_choice, corner_style,
+    # corner_radius) from the persisted settings file (font_choice must be
+    # set before setup() runs -- see module docstring; the corner knobs
+    # have no such constraint).
+    CORNER_STYLE_CHOICES = ("smooth", "blocky")
+
+    font_choice = "default"
+    corner_style = "smooth"
+    corner_radius = "large"
+
+    # See module docstring -- a literal pixel font size for PicoVector, not
+    # a bitmap-font scale multiplier. Placeholder pending on-device tuning.
+    VECTOR_FONT_SIZE = 16
+    VECTOR_FONT_CAP_HEIGHT_RATIO = 0.7
+    VECTOR_FONT_LINE_HEIGHT_RATIO = 1.2
+
     def setup(self, display, dpi_scale_factor):
+        path = self.FONT_CHOICES.get(self.font_choice)
+        if path:
+            self.font = path
         super().setup(display, dpi_scale_factor)
         self.padding = grid.GAP
         self.systray_height = round(grid.span_size(grid.tile_size(480), 2))
-        self.base_text_height = font5x5.CELL_HEIGHT * self.base_font_scale
-        self.base_line_height = font5x5.LINE_HEIGHT * self.base_font_scale
+        self._configure_font_metrics(display, path)
+
+    def apply_font_choice(self, display, font_choice):
+        """
+        Switches the active font at runtime (called from
+        dashboard.settings_page.SettingsPage), without a reboot --
+        Theme.setup() (tmos_ui.py) is one-shot, so this re-does just the
+        font-loading piece of it directly instead.
+        """
+        self.font_choice = font_choice if font_choice in self.FONT_CHOICES else "default"
+        path = self.FONT_CHOICES[self.font_choice]
+        self.font = path or DefaultTheme.font
+        self._configure_font_metrics(display, path)
+
+    def _configure_font_metrics(self, display, path):
+        """
+        Sets self.font/base_font_scale/base_text_height/base_line_height
+        for whichever rendering path `path` (a FONT_CHOICES value) selects,
+        and loads the .af file into PicoVector if it's set. Called from
+        both setup() and apply_font_choice() so switching font_choice
+        either direction -- at boot or live -- always re-derives the right
+        metrics, rather than an apply_font_choice() call reusing whatever
+        the *other* path's setup() happened to leave behind.
+        """
+        self._use_vector_font_rendering = bool(path)
+        if path:
+            self.base_font_scale = self.VECTOR_FONT_SIZE
+            self.base_text_height = round(self.VECTOR_FONT_SIZE * self.VECTOR_FONT_CAP_HEIGHT_RATIO)
+            self.base_line_height = round(self.VECTOR_FONT_SIZE * self.VECTOR_FONT_LINE_HEIGHT_RATIO)
+            self._ensure_picovector(display)
+            self._vector.set_font(self.font, self.base_font_scale)
+        else:
+            # DefaultTheme.base_font_scale, scaled the same way Theme.setup()
+            # (tmos_ui.py) itself would -- restores the exact value setup()
+            # left in place for the default choice, even when this runs from
+            # apply_font_choice() well after boot, switching back from a
+            # vector font that overwrote it above.
+            self.base_font_scale = DefaultTheme.base_font_scale * self.dpi_scale_factor
+            self.base_text_height = font5x5.CELL_HEIGHT * self.base_font_scale
+            self.base_line_height = font5x5.LINE_HEIGHT * self.base_font_scale
 
     def measure_text(self, display, text, rel_scale=1):
-        return font.measure_text(text, self.text_scale(rel_scale))
+        if self.font_choice == "default":
+            return font.measure_text(text, self.text_scale(rel_scale))
+        return super().measure_text(display, text, rel_scale=rel_scale)
 
     def text(self, display, text, x, y, *args, rel_scale=1.0, **kwargs):
-        font.draw_text(display, text, x, y, self.text_scale(rel_scale))
+        if self.font_choice == "default":
+            font.draw_text(display, text, x, y, self.text_scale(rel_scale))
+        else:
+            super().text(display, text, x, y, *args, rel_scale=rel_scale, **kwargs)
 
     def draw_systray(self, display, region, adjoined):
         # DefaultTheme only draws top/bottom border lines across the full

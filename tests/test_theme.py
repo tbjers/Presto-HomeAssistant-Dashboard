@@ -4,9 +4,12 @@ Tests for dashboard.theme.CompressoTheme.
 
 from unittest import mock
 
+import picovector
+import pytest
+
 from tmos import Region
 
-from dashboard import font5x5, grid, palette
+from dashboard import corners, font5x5, grid, palette
 from dashboard.theme import CompressoTheme
 
 
@@ -184,3 +187,164 @@ def test_text_lowercases_are_uppercased_and_unmapped_chars_still_advance(mock_pr
     theme.text(display, "i@", 0, 0, rel_scale=1)
 
     assert display.rectangle.call_count == font5x5.CELL_HEIGHT
+
+
+def _reset_vector_mocks():
+    # Theme._vector (tmos_ui.py) is a class attribute shared across every
+    # Theme instance/test in the session -- reset the mock's recorded calls
+    # so assertions here don't pick up state from other tests (same idiom
+    # as tests/test_modal.py's own _reset_vector_mocks()).
+    picovector.PicoVector.reset_mock()
+    picovector.PicoVector.return_value.reset_mock()
+    picovector.PicoVector.return_value.measure_text.return_value = (0, 0, 50, 20)
+
+
+class TestCornerDefaults:
+    def test_default_style_is_smooth(self):
+        assert CompressoTheme.corner_style == "smooth"
+
+    def test_default_radius_is_a_known_choice(self):
+        assert CompressoTheme.corner_radius in corners.RADIUS_CHOICES
+
+
+class TestFontChoiceSetup:
+    def test_default_font_choice_keeps_bitmap8_and_font5x5_metrics(self, mock_presto_module):
+        theme = CompressoTheme()
+        theme.setup(_mock_display(), dpi_scale_factor=2)
+
+        assert theme.font == "bitmap8"
+        assert theme.base_text_height == font5x5.CELL_HEIGHT * theme.base_font_scale
+
+    @pytest.mark.parametrize("choice", ["atkinson", "inter"])
+    def test_vector_font_choice_sets_font_path_and_pixel_size(self, mock_presto_module, choice):
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        theme.font_choice = choice
+        display = _mock_display()
+
+        theme.setup(display, dpi_scale_factor=2)
+
+        assert theme.font == CompressoTheme.FONT_CHOICES[choice]
+        # base_font_scale is a *pixel font size* for PicoVector (VECTOR_
+        # FONT_SIZE), not font5x5's dpi-scaled multiplier -- see
+        # dashboard/theme.py's module docstring for why reusing that
+        # multiplier would render the font unreadably small.
+        assert theme.base_font_scale == CompressoTheme.VECTOR_FONT_SIZE
+        vector = picovector.PicoVector.return_value
+        vector.set_font.assert_called_with(theme.font, CompressoTheme.VECTOR_FONT_SIZE)
+
+    def test_vector_font_choice_uses_vector_tuned_metrics_not_font5x5s(self, mock_presto_module):
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        theme.font_choice = "inter"
+
+        theme.setup(_mock_display(), dpi_scale_factor=2)
+
+        assert theme.base_text_height == round(
+            CompressoTheme.VECTOR_FONT_SIZE * CompressoTheme.VECTOR_FONT_CAP_HEIGHT_RATIO
+        )
+        assert theme.base_line_height == round(
+            CompressoTheme.VECTOR_FONT_SIZE * CompressoTheme.VECTOR_FONT_LINE_HEIGHT_RATIO
+        )
+        # Explicitly NOT font5x5's 5-row metrics -- those are only correct
+        # for the bitmap-multiplier regime.
+        assert theme.base_text_height != font5x5.CELL_HEIGHT * theme.base_font_scale
+
+
+class TestTextDispatch:
+    def test_default_choice_uses_font_module(self, mock_presto_module):
+        theme = CompressoTheme()
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)
+
+        theme.text(display, "I", 10, 20, rel_scale=1)
+
+        assert display.rectangle.call_count == font5x5.CELL_HEIGHT  # font.draw_text path
+
+    def test_vector_choice_delegates_to_picovector_text(self, mock_presto_module):
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        theme.font_choice = "atkinson"
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)
+        display.rectangle.reset_mock()
+
+        theme.text(display, "hello", 10, 20, rel_scale=1)
+
+        vector = picovector.PicoVector.return_value
+        vector.text.assert_called_once()
+        display.rectangle.assert_not_called()  # not the font5x5 path
+
+    def test_default_choice_measures_via_font_module(self, mock_presto_module):
+        theme = CompressoTheme()
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)
+
+        width, height = theme.measure_text(display, "0709", rel_scale=3)
+
+        expected_units = sum(font5x5.GLYPHS[c][0] + font5x5.GLYPH_GAP for c in "0709")
+        assert width == expected_units * 6
+        assert height == font5x5.CELL_HEIGHT * 6
+
+    def test_vector_choice_measures_via_picovector(self, mock_presto_module):
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        theme.font_choice = "inter"
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)
+        picovector.PicoVector.return_value.measure_text.return_value = (0, 0, 123, 20)
+
+        width, _ = theme.measure_text(display, "hello", rel_scale=1)
+
+        assert width == 123
+
+
+class TestApplyFontChoice:
+    def test_switches_to_a_vector_font(self, mock_presto_module):
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)  # boots with the default font
+
+        theme.apply_font_choice(display, "atkinson")
+
+        assert theme.font_choice == "atkinson"
+        assert theme.font == CompressoTheme.FONT_CHOICES["atkinson"]
+        assert theme._use_vector_font_rendering is True
+        assert theme.base_font_scale == CompressoTheme.VECTOR_FONT_SIZE
+        picovector.PicoVector.return_value.set_font.assert_any_call(
+            theme.font, theme.base_font_scale
+        )
+
+    def test_switches_back_to_default_and_restores_bitmap_metrics(self, mock_presto_module):
+        # Regression check: apply_font_choice() must re-derive
+        # base_font_scale/base_text_height/base_line_height for the target
+        # choice, not just leave whatever the vector font's setup() left in
+        # place -- otherwise switching back to "default" at runtime would
+        # keep rendering font5x5 at the vector font's pixel-size scale.
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        theme.font_choice = "inter"
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)
+        assert theme.base_font_scale == CompressoTheme.VECTOR_FONT_SIZE  # sanity: vector active
+
+        theme.apply_font_choice(display, "default")
+
+        assert theme.font_choice == "default"
+        assert theme.font == "bitmap8"
+        assert theme._use_vector_font_rendering is False
+        assert theme.base_font_scale == 2  # DefaultTheme's 1, dpi-scaled by 2
+        assert theme.base_text_height == font5x5.CELL_HEIGHT * 2
+        assert theme.base_line_height == font5x5.LINE_HEIGHT * 2
+
+    def test_unknown_choice_falls_back_to_default(self, mock_presto_module):
+        _reset_vector_mocks()
+        theme = CompressoTheme()
+        display = _mock_display()
+        theme.setup(display, dpi_scale_factor=2)
+
+        theme.apply_font_choice(display, "not-a-real-font")
+
+        assert theme.font_choice == "default"
+        assert theme._use_vector_font_rendering is False

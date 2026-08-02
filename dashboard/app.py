@@ -43,6 +43,19 @@ class DashboardApp(App):
         self._state.on_update("device/config", self._on_config_update)
 
     def pages(self):
+        # Force a fresh setup() on every call, not just the first: this app
+        # reuses the same DashboardPage instances across app switches
+        # (tmos_apps.AppManager.set_current_app() calls pages() every time
+        # it's made current again), and WindowManager.remove_page()
+        # (tmos_ui.py) calls page.teardown() when switching away -- which
+        # wipes DashboardPage._plain_tiles/_controls (dashboard/page.py) --
+        # but nothing in vendored code ever resets page.needs_setup back to
+        # True afterward, so setup() would otherwise never rerun to rebuild
+        # them, leaving a page that's permanently blank after the first
+        # switch away and back. Confirmed on real hardware: Dashboard ->
+        # Settings -> Dashboard left only the systray visible.
+        for page in self._pages:
+            page.needs_setup = True
         return self._pages
 
     def _build_pages(self, screens):
