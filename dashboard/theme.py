@@ -49,7 +49,21 @@ Font choice: font5x5 (above) is the only font drawn until the user opens
 the new Settings app (dashboard/settings_page.py, reached via the existing
 hamburger/app-switcher systray accessory) and picks one of FONT_CHOICES'
 two PicoVector .af assets (Atkinson Hyperlegible, Inter) --
-see dashboard/settings.py for where that choice is persisted. Rather than
+see dashboard/settings.py for where that choice is persisted.
+
+CURRENTLY GATED OFF: loading either .af asset via PicoVector hangs real
+hardware hard enough to require a physical power-cycle to recover
+(confirmed on-device -- reproduces from WindowManager(theme=...)
+construction alone with font_choice pre-set, independent of a separate
+base_font_scale-ordering bug in setup() below that was also fixed but
+wasn't the actual cause). FONT_CHOICES below only has "default" until
+this is root-caused; see its own comment, and
+dashboard.settings_page.FONT_CHOICE_ORDER/dashboard.settings.
+VALID_FONT_CHOICES for the other two places that must move in lockstep
+with it. The rest of this section describes the (currently unreachable)
+vector-font mechanism as designed, for whoever re-enables it.
+
+Rather than
 building a second, separate PicoVector instance the way dashboard/modal.py's
 controls each do for their own shapes, font rendering reuses TmOS's own
 already-built-in .af loading path (tmos_ui.py's Theme.setup()/.text()/
@@ -112,15 +126,23 @@ from dashboard import font, font5x5, grid, palette
 class CompressoTheme(DefaultTheme):
     background_pen = palette.GRAY_950
     foreground_pen = palette.GRAY_200
-    secondary_background_pen = palette.GRAY_900
+    secondary_background_pen = palette.GRAY_950
     error_pen = palette.ROSE_600
 
     # font_choice -> .af asset path (None means the default font5x5 bitmap
     # font, drawn via dashboard.font rather than PicoVector at all).
+    #
+    # "atkinson"/"inter" are temporarily removed -- see
+    # dashboard.settings_page.FONT_CHOICE_ORDER's comment for why (a
+    # PicoVector .af load hangs real hardware). Keeping them out of this
+    # dict, not just the Settings UI, means even a stray/foreign
+    # font_choice value (e.g. a leftover settings.json from before this
+    # was disabled) can't reach _vector.set_font() -- FONT_CHOICES.get()
+    # just returns None and setup()/apply_font_choice() fall back to the
+    # bitmap font5x5 path. Restore both entries (paths unchanged) once the
+    # underlying PicoVector issue is fixed.
     FONT_CHOICES = {
         "default": None,
-        "atkinson": "dashboard/assets/atkinson-hyperlegible.af",
-        "inter": "dashboard/assets/inter.af",
     }
 
     # corner_style picks the rendering technique (smooth PicoVector
@@ -149,6 +171,23 @@ class CompressoTheme(DefaultTheme):
         path = self.FONT_CHOICES.get(self.font_choice)
         if path:
             self.font = path
+            # Theme.setup() (tmos_ui.py), called via super() below, loads
+            # self.font into PicoVector itself via
+            # self._vector.set_font(self.font, self.base_font_scale) --
+            # using whatever base_font_scale already holds *at that point*,
+            # which is still DefaultTheme.base_font_scale (1), since
+            # _configure_font_metrics() (which sets it to VECTOR_FONT_SIZE)
+            # doesn't run until after super().setup() returns below.
+            # Loading a PicoVector .af font at a literal size of 1 locked
+            # up real hardware hard enough that even USB serial stopped
+            # responding -- confirmed on-device: booting with a persisted
+            # vector font_choice made the Presto unrecoverable except by
+            # deleting main.py from another machine. Pre-set the real
+            # pixel size here so Theme.setup()'s own set_font() call
+            # already gets it right; this doesn't need dpi_scale_factor
+            # (unlike the default/bitmap branch in _configure_font_metrics
+            # below), so it's safe to set before super().setup() runs.
+            self.base_font_scale = self.VECTOR_FONT_SIZE
         super().setup(display, dpi_scale_factor)
         self.padding = grid.GAP
         self.systray_height = round(grid.span_size(grid.tile_size(480), 2))
@@ -205,20 +244,87 @@ class CompressoTheme(DefaultTheme):
             super().text(display, text, x, y, *args, rel_scale=rel_scale, **kwargs)
 
     def draw_systray(self, display, region, adjoined):
-        # DefaultTheme only draws top/bottom border lines across the full
-        # strip -- there's no left/right edge closing the box. The rightmost
-        # page button's own solid fill happens to reach the screen's right
-        # edge, so that side looks closed by coincidence, but the leading
-        # app-switcher accessory has no fill of its own (just its hamburger
-        # bars on the plain strip background), so the left edge read as an
-        # open/"clipped" border. Add both verticals so the box is closed on
-        # every side regardless of what's docked at either end.
-        super().draw_systray(display, region, adjoined)
+        # DefaultTheme's version (tmos_ui.py) fills the strip then draws
+        # top/bottom borders via display.line() -- no left/right edge, so
+        # the box wasn't closed on every side (see below), and on real
+        # hardware that line()-drawn border rendered visibly thicker than
+        # the 1px rectangle()-built outline
+        # draw_button_frame/draw_app_switcher_button use, most obviously
+        # where the two sit right next to each other around the hamburger
+        # button. Redraws all four sides here as explicit 1px
+        # display.rectangle() calls instead of super().draw_systray()'s
+        # display.line() ones, for a border technique that's consistent
+        # (and consistently 1px) with the rest of this theme's chrome.
+        x, y, w, h = region
+        display.set_pen(self.secondary_background_pen)
+        display.rectangle(x, y, w, h)
         display.set_pen(self.foreground_pen)
-        right_x = region.x + region.width - 1
-        bottom_y = region.y + region.height - 1
-        display.line(region.x, region.y, region.x, bottom_y)
-        display.line(right_x, region.y, right_x, bottom_y)
+        display.rectangle(x, y, w, 1)  # top
+        display.rectangle(x, y + h - 1, w, 1)  # bottom
+        display.rectangle(x, y, 1, h)  # left
+        display.rectangle(x + w - 1, y, 1, h)  # right
+
+    def draw_button_frame(self, display, region, is_pressed, adjoined):
+        # DefaultTheme's version (tmos_ui.py) fills with foreground_pen and
+        # is_pressed insets background_pen -- correct for its "black ink on
+        # white paper" convention (foreground=BLACK, background=WHITE), but
+        # CompressoTheme's pens are inverted (foreground_pen is the *light*
+        # color used as ink on a dark page, background_pen the near-black
+        # page color -- see class docstring/pen assignments above), so the
+        # vendored algorithm painted unselected buttons white and selected
+        # ones black. Draws an always-on foreground_pen outline first (an
+        # unselected button's background_pen fill would otherwise be
+        # indistinguishable from the page it sits on, which also clears to
+        # background_pen), then insets the state's fill -- background_pen
+        # unselected, foreground_pen selected, matching the outline so a
+        # selected button reads as a solid block.
+        x, y, w, h = region
+        display.set_pen(self.foreground_pen)
+        display.rectangle(x, y, w, h)
+        display.set_pen(self.foreground_pen if is_pressed else self.background_pen)
+        display.rectangle(x + 1, y + 1, w - 2, h - 2)
+
+    def draw_button_title(self, display, region, is_pressed, title, title_rel_scale, adjoined):
+        # See draw_button_frame above -- same pen swap, same reason.
+        display.set_pen(self.background_pen if is_pressed else self.foreground_pen)
+        self.centered_text(display, region, title, rel_scale=title_rel_scale)
+
+    def draw_systray_page_button_frame(self, display, region, is_pressed, adjoined):
+        # Base Theme.draw_systray_page_button_frame (tmos_ui.py) just calls
+        # draw_button_frame above -- fine for a one-off selection like the
+        # settings radio groups, but the "current page" tab is *always*
+        # is_pressed, so that full foreground_pen block would be a
+        # permanently-lit bright patch sitting in the middle of the (dark)
+        # systray. A thin underline reads as "this is the current page"
+        # without turning part of the systray into a standing bright spot.
+        if not is_pressed:
+            return
+        # This region shares the systray's own y/height (Systray hands
+        # accessories/the page switcher the full strip height -- see
+        # dashboard.app_manager.DashboardAppManagerAccessory's docstring),
+        # so its bottom row is the exact same row draw_systray() draws its
+        # 1px border on. A 2px-tall underline flush against that row (1px
+        # of its own + the shared border row) reads as the systray's
+        # border having doubled to 2px specifically under the current
+        # page's tab -- confirmed on real hardware. Leaving a gap (plain
+        # systray fill) between the border and this underline keeps them
+        # visually distinct instead of merging into one thick line.
+        display.set_pen(self.foreground_pen)
+        x, y, w, h = region
+        border_height = 1
+        gap = 2
+        underline_height = 2
+        display.rectangle(x, y + h - border_height - gap - underline_height, w, underline_height)
+
+    def draw_systray_page_button_title(
+        self, display, region, is_pressed, title, title_rel_scale, adjoined
+    ):
+        # See draw_systray_page_button_frame above -- titles stay
+        # foreground_pen regardless of state (always legible against the
+        # systray's own dark fill), with the underline being the only
+        # current-page indicator.
+        display.set_pen(self.foreground_pen)
+        self.centered_text(display, region, title, rel_scale=title_rel_scale)
 
     def draw_app_switcher_button(self, display, region, is_pressed):
         # Copy of DefaultTheme.draw_app_switcher_button (tmos_ui.py) with an
@@ -230,6 +336,17 @@ class CompressoTheme(DefaultTheme):
         # right side has no equivalent border baked into ITS margin (the
         # DASHBOARD button's fill starts immediately after, not within, the
         # gap), so only the left inset needs the extra pixel.
+        # Unlike DefaultTheme's version, this button also gets the same
+        # foreground_pen outline draw_button_frame gives every other button
+        # -- without it, the icon was just three bars floating on the plain
+        # systray fill with no boundary of its own, inconsistent with every
+        # other now-outlined button.
+        rx, ry, rw, rh = region
+        display.set_pen(self.foreground_pen)
+        display.rectangle(rx, ry, rw, rh)
+        display.set_pen(self.background_pen)
+        display.rectangle(rx + 1, ry + 1, rw - 2, rh - 2)
+
         num_bars = 3
         spacing = 3 * self.dpi_scale_factor
         left_inset = spacing + 1

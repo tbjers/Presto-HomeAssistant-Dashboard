@@ -39,8 +39,20 @@ RADIUS_LABELS = ("SQUARE", "SMALL", "MEDIUM", "LARGE")
 
 # 1:1 with dashboard.theme.CompressoTheme.FONT_CHOICES' keys, in a fixed
 # display order (dicts are unordered enough not to rely on for indexing).
-FONT_CHOICE_ORDER = ("default", "atkinson", "inter")
-FONT_LABELS = ("DEFAULT", "ATKINSON", "INTER")
+#
+# Atkinson/Inter are temporarily gated off here -- selecting either loads
+# a PicoVector .af font, which hung real hardware hard enough to require
+# a physical power-cycle to recover (confirmed on-device: the hang
+# reproduces with WindowManager(theme=...) construction alone, so it's
+# not specific to any one code path or the base_font_scale-ordering bug
+# that was also fixed in dashboard.theme.CompressoTheme.setup() -- that
+# fix is necessary but wasn't sufficient). Re-enable by restoring the
+# commented-out entries here and in dashboard.theme.CompressoTheme.
+# FONT_CHOICES / dashboard.settings.VALID_FONT_CHOICES once the
+# underlying PicoVector .af loading issue is root-caused -- the asset
+# files and apply_font_choice()/_configure_font_metrics() are untouched.
+FONT_CHOICE_ORDER = ("default",)  # "atkinson", "inter"
+FONT_LABELS = ("DEFAULT",)  # "ATKINSON", "INTER"
 
 # Every settings group (label + RadioButton) occupies the same number of
 # grid rows, so groups stay evenly spaced regardless of how many are added

@@ -25,7 +25,15 @@ import json
 
 from dashboard import corners
 
-VALID_FONT_CHOICES = ("default", "atkinson", "inter")
+# "atkinson"/"inter" temporarily gated off -- see
+# dashboard.settings_page.FONT_CHOICE_ORDER's comment (a PicoVector .af
+# load hangs real hardware). Restricting this too, not just the UI/
+# dashboard.theme.CompressoTheme.FONT_CHOICES, means a leftover persisted
+# "atkinson"/"inter" from before this was disabled is treated as invalid
+# and silently replaced with DEFAULTS's "default" by load() below, rather
+# than surviving as a value SettingsPage.setup()'s
+# FONT_CHOICE_ORDER.index() call can't find (which would raise).
+VALID_FONT_CHOICES = ("default",)
 
 DEFAULTS = {
     "corner_style": "smooth",

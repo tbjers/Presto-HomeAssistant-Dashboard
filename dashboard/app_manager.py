@@ -27,7 +27,31 @@ will_show() for it (current_page != last_page there) -- so the extra call
 here is at most a harmless redundant will_show() in that case.
 """
 
-from tmos_apps import App, AppManager, AppSwitcher
+from tmos_apps import App, AppManager, AppManagerAccessory, AppSwitcher
+
+
+class DashboardAppManagerAccessory(AppManagerAccessory):
+    """
+    AppManagerAccessory (tmos_apps.py) with its button flush against the
+    systray's own edges, rather than the vendored 2px inset -- without
+    hand-editing that file (see VENDORING.md).
+
+    dashboard.theme.CompressoTheme.draw_app_switcher_button() now draws its
+    own foreground_pen outline around the button (see that method's
+    comment), and CompressoTheme.draw_systray() already draws a matching
+    foreground_pen border around the whole systray strip. The accessory's
+    region is already flush with the systray's own edges (Systray.
+    __setup_accessories, tmos_ui.py, hands it the raw strip region with no
+    padding of its own) -- AppManagerAccessory.setup()'s 2px inset was the
+    only thing separating the two, leaving a visible background-colored
+    gap between the button's border and the systray's. Zeroing it makes
+    the two borders coincide as one continuous line instead.
+    """
+
+    def setup(self, region, window_manager):
+        button = self.AppSwitcherButton(region)
+        button.on_button_up = self.on_open_switcher
+        self._controls = [button]
 
 
 class DashboardAppManager(AppManager):
@@ -37,6 +61,16 @@ class DashboardAppManager(AppManager):
         # (__window_manager, private to the base class) -- stash our own
         # rather than reach into that.
         self._window_manager = window_manager
+
+    def systray_accessory(self):
+        # AppManager.systray_accessory() (tmos_apps.py) builds a plain
+        # AppManagerAccessory -- swap in DashboardAppManagerAccessory
+        # above instead, replicating the two lines of wiring it does
+        # (there's no super() call to reuse partway through since the
+        # class to instantiate differs).
+        accessory = DashboardAppManagerAccessory()
+        accessory.on_open_switcher = self.open_switcher
+        return accessory
 
     def open_switcher(self):
         if not self.apps():
