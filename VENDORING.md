@@ -61,3 +61,30 @@ Files:
 Re-vendor: update the embedded `d` string constant(s) in the relevant `scripts/flatten_*.py` from the
 upstream repo's `svg/<name>.svg` files, then re-run that script (see each script's own docstring for
 the exact command).
+
+## Fonts (dashboard/assets/*.af)
+
+Source: [Atkinson Hyperlegible](https://github.com/google/fonts/tree/main/ofl/atkinsonhyperlegible)
+(Copyright 2020 Braille Institute of America, Inc.) and
+[Inter](https://github.com/google/fonts/tree/main/ofl/inter) (Copyright 2020 The Inter Project
+Authors), both licensed under the SIL Open Font License 1.1 — license text bundled alongside each
+`.af` as `dashboard/assets/OFL-<name>.txt`, per the OFL's redistribution requirement.
+
+Not verbatim copies — PicoVector can't load `.ttf`/`.otf` directly, only Pimoroni's own binary `.af`
+("Alright Fonts") vector-font format, so each source TTF is converted host-side with the `afinate`
+tool from [lowfatcode/alright-fonts](https://github.com/lowfatcode/alright-fonts) (MIT-licensed;
+requires `freetype-py`, not itself vendored into or a runtime dependency of this repo — see
+dashboard/theme.py's module docstring for how CompressoTheme loads the resulting files).
+
+Files:
+- `dashboard/assets/atkinson-hyperlegible.af`, converted from
+  `ofl/atkinsonhyperlegible/AtkinsonHyperlegible-Regular.ttf`
+- `dashboard/assets/inter.af`, converted from `ofl/inter/Inter[opsz,wght].ttf` (a variable font —
+  afinate/FreeType extract outlines at its default instance, i.e. Inter Regular, wght=400)
+
+Re-vendor:
+```
+uv run --with freetype-py python afinate --font <path-to.ttf> --quality medium --format af <out.af>
+```
+(`afinate` and its `python_alright_fonts` package are fetched from the alright-fonts repo above —
+not present in this repo — since they're only ever needed for this one-off regeneration.)

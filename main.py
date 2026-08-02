@@ -16,8 +16,9 @@ import secrets
 
 from tmos import OS
 from tmos_ui import WindowManager
-from tmos_apps import AppManager
 
+from dashboard import settings as device_settings
+from dashboard.app_manager import DashboardAppManager
 from dashboard.splash import show as show_splash
 from dashboard.theme import CompressoTheme
 # dashboard.app is deliberately NOT imported up here -- it transitively
@@ -50,13 +51,29 @@ show_splash(os)
 # however long the network takes. DashboardPage's first tick overdraws it
 # once the run loop starts -- see dashboard/splash.py.
 
-wm = WindowManager(os, theme=CompressoTheme(), systray_visible=True)
+theme = CompressoTheme()
+saved_settings = device_settings.load()
+theme.font_choice = saved_settings["font_choice"]
+# Must be set before WindowManager(...) below triggers theme.setup() --
+# Theme.setup() (tmos_ui.py) is one-shot, so a font_choice set afterwards
+# wouldn't take effect at boot (see dashboard/theme.py's module docstring;
+# runtime switching after boot goes through apply_font_choice() instead,
+# from dashboard/settings_page.py).
+theme.corner_style = saved_settings["corner_style"]
+theme.corner_radius = saved_settings["corner_radius"]
+
+wm = WindowManager(os, theme=theme, systray_visible=True)
 # systray_visible defaults to False -- AppManager below only registers the
 # app-switcher button as systray *content*, it never flips this flag itself,
 # so it has to be set explicitly here or the systray never renders at all.
-apps = AppManager(wm)  # default systray_position -- app-switcher accessory on the leading edge
+apps = DashboardAppManager(wm)  # default systray_position -- app-switcher accessory on the leading edge
+# DashboardAppManager (not vendored tmos_apps.AppManager directly) -- fixes
+# a stale-screen bug in AppManager.open_switcher() where reselecting the
+# already-current app from the hamburger menu clears the modal without
+# ever repainting the page underneath. See dashboard/app_manager.py.
 
 from dashboard.app import DashboardApp  # noqa: E402 -- see the top-of-file note
+from dashboard.settings_page import SettingsApp  # noqa: E402 -- see the top-of-file note
 
 dash_app = DashboardApp(config, secrets)
 apps.add_app(dash_app, make_current=True)
@@ -65,6 +82,11 @@ apps.add_app(dash_app, make_current=True)
 # actual connection attempt, non-blocking, once the run loop starts).
 # make_current=True pulls pages()/tasks() now, registering DashboardPage
 # and the mqtt.tick task.
+
+apps.add_app(SettingsApp(theme))
+# Not make_current -- this just registers "Settings" as a second row in
+# the existing hamburger/app-switcher list (tmos_apps.py's AppSwitcher),
+# alongside "Dashboard". The dashboard stays the app shown at boot.
 
 os.boot(wifi=True, use_ntp=True, run=True)
 # wifi=True: presto.connect() reads secrets.py's WIFI_SSID/WIFI_PASSWORD.

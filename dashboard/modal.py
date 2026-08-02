@@ -25,7 +25,7 @@ from picovector import ANTIALIAS_BEST, PicoVector, Polygon, Transform
 from tmos import Region
 from tmos_ui import Control, MomentaryButton, StaticPage, is_within
 
-from dashboard import grid, icons, palette, topics
+from dashboard import corners, grid, icons, palette, topics
 
 
 def _clamp(value, low, high):
@@ -106,13 +106,6 @@ class SliderControl(Control):
         display.circle(x + fill_width, y + handle_radius, handle_radius)
 
 
-# Fixed corner radius for VerticalSliderControl's track/fill -- deliberately
-# less than a full pill (width // 2) to avoid an unverified set_clip-based
-# fill approach (no precedent anywhere else in this codebase for clipping
-# inside a single Control.draw()). Tune on-device.
-_VERTICAL_TRACK_CORNER_RADIUS = 20
-
-
 class VerticalSliderControl(SliderControl):
     """
     A vertical variant of SliderControl: no drag handle, rounded track/fill
@@ -139,7 +132,16 @@ class VerticalSliderControl(SliderControl):
     execution_frequency, and OS.add_task's docstring states "if omitted, it
     will be called each tick"), unlike a normal page's needs_update-gated
     redraws. Only the fill polygon, whose height varies, is rebuilt per
-    frame.
+    frame. Caching stays valid even though the corner radius is now
+    theme-driven (see draw()) rather than a fixed constant -- theme
+    settings can't change while a single modal instance is alive (a fresh
+    LightBrightnessModal, and fresh Controls, are constructed every time
+    DimmableLightTile._open_modal reopens it).
+
+    At theme.corner_style == "blocky" (or corner_radius == "square"),
+    track/fill corners are instead drawn via dashboard.corners' pixel-block
+    notches (plain display.rectangle() calls, no PicoVector) -- see draw()
+    below for why the fill's erase colors differ per corner.
     """
 
     def __init__(self, region: Region, min_value, max_value, initial_value, pens):
@@ -157,36 +159,90 @@ class VerticalSliderControl(SliderControl):
 
     def draw(self, display, theme):
         x, y, width, height = self.region
+        # pixel_size: same "pixel" unit dashboard.font5x5's big tile-value
+        # text draws at (ValueTile/TemperatureTile/DateTimeTile, all
+        # rel_scale=3) -- see dashboard/theme.py's module docstring.
+        pixel_size = theme.text_scale(3)
+        blocks = corners.radius_blocks(theme.corner_radius)
+        radius = blocks * pixel_size
+        smooth = theme.corner_style == "smooth" and radius > 0
+        track_pen = self._pens.get(palette.GRAY_800)
 
-        if self._vector is None:
-            self._vector = PicoVector(display)
-            self._vector.set_antialiasing(ANTIALIAS_BEST)
-            self._vector.set_transform(Transform())
-        if self._track_polygon is None:
-            self._track_polygon = Polygon()
-            self._track_polygon.rectangle(
-                x, y, width, height, corners=(_VERTICAL_TRACK_CORNER_RADIUS,) * 4
-            )
-
-        display.set_pen(self._pens.get(palette.GRAY_800))
-        self._vector.draw(self._track_polygon)
+        if smooth:
+            if self._vector is None:
+                self._vector = PicoVector(display)
+                self._vector.set_antialiasing(ANTIALIAS_BEST)
+                self._vector.set_transform(Transform())
+            if self._track_polygon is None:
+                self._track_polygon = Polygon()
+                self._track_polygon.rectangle(x, y, width, height, corners=(radius,) * 4)
+            display.set_pen(track_pen)
+            self._vector.draw(self._track_polygon)
+        else:
+            display.set_pen(track_pen)
+            display.rectangle(x, y, width, height)
+            if radius > 0:
+                corners.draw_blocky_corners(
+                    display, x, y, width, height, pixel_size, blocks, theme.background_pen
+                )
 
         span = self.max_value - self.min_value
         fraction = 0.0 if span == 0 else (self.value - self.min_value) / span
         fill_height = round(height * fraction)
         if fill_height > 0:
-            # A separately-sized rounded rect anchored to the bottom, not a
-            # crop of the track -- at fraction=1.0 it exactly coincides with
-            # the track (same x/width/radius). Its own radius is clamped so
-            # it never exceeds half its own (possibly small) height.
-            fill_radius = min(_VERTICAL_TRACK_CORNER_RADIUS, fill_height / 2)
-            fill = Polygon()
-            fill.rectangle(
-                x, y + height - fill_height, width, fill_height, corners=(fill_radius,) * 4
-            )
+            fill_y = y + height - fill_height
             fill_color = palette.GREEN_400 if self.is_on else palette.GRAY_700
-            display.set_pen(self._pens.get(fill_color))
-            self._vector.draw(fill)
+            fill_pen = self._pens.get(fill_color)
+
+            if smooth:
+                # A separately-sized rounded rect anchored to the bottom,
+                # not a crop of the track -- at fraction=1.0 it exactly
+                # coincides with the track (same x/width/radius). Its own
+                # radius is clamped so it never exceeds half its own
+                # (possibly small) height.
+                fill_radius = min(radius, fill_height / 2)
+                fill = Polygon()
+                fill.rectangle(x, fill_y, width, fill_height, corners=(fill_radius,) * 4)
+                display.set_pen(fill_pen)
+                self._vector.draw(fill)
+            else:
+                display.set_pen(fill_pen)
+                display.rectangle(x, fill_y, width, fill_height)
+                if radius > 0:
+                    # Bottom corners always coincide with the track's own
+                    # bottom corners (fill's bottom edge == track's bottom
+                    # edge at any fraction), so they must always reveal the
+                    # true background, same as the track's own notches
+                    # above. Top corners only coincide with the track's top
+                    # edge when the fill covers the whole track
+                    # (fraction=1) -- otherwise they float inside the track
+                    # and must reveal the track's own color instead, or a
+                    # sliver of background would incorrectly show through
+                    # where gray track is actually still visible.
+                    # theme.background_pen is already a real pen handle by
+                    # the time draw() runs (Theme.setup()'s pen-conversion
+                    # loop, tmos_ui.py, converts every _pens-listed
+                    # attribute from an rgb tuple to
+                    # display.create_pen(*rgb) up front) -- unlike
+                    # palette.GRAY_800/etc above, it must NOT be passed
+                    # through self._pens.get() again (that expects a raw
+                    # rgb tuple to hash/convert, and errors on an int pen
+                    # handle).
+                    bg_pen = theme.background_pen
+                    top_pen = bg_pen if fill_height >= height else track_pen
+                    # draw_blocky_corners clamps `blocks` itself to fit
+                    # fill_height -- no separate pre-clamped radius needed
+                    # here the way the smooth path's fill_radius is.
+                    corners.draw_blocky_corners(
+                        display,
+                        x,
+                        fill_y,
+                        width,
+                        fill_height,
+                        pixel_size,
+                        blocks,
+                        corner_pens=(top_pen, top_pen, bg_pen, bg_pen),
+                    )
 
 
 class PowerButton(MomentaryButton):
@@ -203,16 +259,20 @@ class PowerButton(MomentaryButton):
     tick. Touch handling itself (on_button_down/up/cancel) is inherited
     unmodified from MomentaryButton and only drives on_button_up; it does
     not update is_on itself.
+
+    Unlike an earlier version, the background is no longer forced to a
+    full pill (radius = region.height // 2) independent of settings --
+    corner_radius (theme, dashboard/settings_page.py) now governs both
+    this button and VerticalSliderControl uniformly, so _bg_polygon can no
+    longer be built eagerly in __init__ (the radius isn't known until
+    theme is available, in draw()) -- built lazily and cached instead, the
+    same way VerticalSliderControl's _track_polygon already is.
     """
 
     def __init__(self, region: Region, pens, icon_size=28):
         super().__init__(region)
         self._pens = pens
         self.is_on = False
-
-        radius = region.height // 2
-        self._bg_polygon = Polygon()
-        self._bg_polygon.rectangle(*region, corners=(radius,) * 4)
 
         icon_x = region.x + (region.width - icon_size) // 2
         icon_y = region.y + (region.height - icon_size) // 2
@@ -228,6 +288,7 @@ class PowerButton(MomentaryButton):
         )
 
         self._vector = None
+        self._bg_polygon = None
 
     def draw(self, display, theme):
         if self._vector is None:
@@ -237,9 +298,36 @@ class PowerButton(MomentaryButton):
 
         bg = palette.GREEN_400 if self.is_on else palette.GRAY_900
         icon_color = palette.GREEN_900 if self.is_on else palette.GRAY_600
+        pixel_size = theme.text_scale(3)
+        blocks = corners.radius_blocks(theme.corner_radius)
+        radius = blocks * pixel_size
+        smooth = theme.corner_style == "smooth" and radius > 0
 
-        display.set_pen(self._pens.get(bg))
-        self._vector.draw(self._bg_polygon)
+        if smooth:
+            if self._bg_polygon is None:
+                self._bg_polygon = Polygon()
+                self._bg_polygon.rectangle(*self.region, corners=(radius,) * 4)
+            display.set_pen(self._pens.get(bg))
+            self._vector.draw(self._bg_polygon)
+        else:
+            x, y, width, height = self.region
+            display.set_pen(self._pens.get(bg))
+            display.rectangle(x, y, width, height)
+            if radius > 0:
+                corners.draw_blocky_corners(
+                    display,
+                    x,
+                    y,
+                    width,
+                    height,
+                    pixel_size,
+                    blocks,
+                    theme.background_pen,  # already a pen handle -- see VerticalSliderControl.draw()
+                )
+
+        # The icon glyph itself stays smooth/antialiased regardless of
+        # corner_style/corner_radius -- only rectangle corner rounding is
+        # affected.
         display.set_pen(self._pens.get(icon_color))
         self._vector.draw(self._icon_polygon)
 

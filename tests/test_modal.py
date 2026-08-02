@@ -10,7 +10,7 @@ import pytest
 
 from tmos import Region
 
-from dashboard import grid, icons, palette, topics
+from dashboard import corners, grid, icons, palette, topics
 from dashboard.modal import (
     DetailModalPage,
     LightBrightnessModal,
@@ -30,6 +30,36 @@ def _touch(factory, state, x=0, y=0):
 
 def _pens():
     return palette.PenCache(mock.Mock())
+
+
+# A plain int, not an rgb tuple -- by the time any Page's draw() runs in
+# production, Theme.setup()'s pen-conversion loop (tmos_ui.py) has already
+# turned background_pen into a real pen handle via display.create_pen(),
+# same as any other _pens-listed attribute. Using a raw palette tuple here
+# previously masked a real bug: VerticalSliderControl/PowerButton.draw()
+# passed theme.background_pen through self._pens.get() a second time,
+# which expects an unconverted rgb tuple and TypeErrors trying to unpack
+# an already-converted int pen handle -- caught only by the on-device
+# smoke test (mocked displays don't complain about *anything unpacking).
+_BACKGROUND_PEN_HANDLE = 999999
+
+
+# Matches theme.text_scale(3) in production -- see dashboard/theme.py's
+# module docstring (base_font_scale=2 at our fixed dpi_scale_factor=2,
+# *3 for tiles.py's big-value rel_scale).
+_PIXEL_SIZE = 6
+
+
+def _theme(style="smooth", radius="large", background_pen=_BACKGROUND_PEN_HANDLE, pixel_size=_PIXEL_SIZE):
+    # A bare mock.Mock() would make theme.text_scale(3) return a Mock
+    # object rather than a usable int, so draw()-exercising tests need
+    # this instead of mock.Mock().
+    theme = mock.Mock()
+    theme.corner_style = style
+    theme.corner_radius = radius
+    theme.background_pen = background_pen
+    theme.text_scale = mock.Mock(return_value=pixel_size)
+    return theme
 
 
 def _reset_vector_mocks():
@@ -142,7 +172,7 @@ class TestSliderControlDraw:
         pens = palette.PenCache(display)
         slider = SliderControl(region, 0, 255, 127, pens)
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         # Track + fill + handle each set a pen and draw something.
         assert display.set_pen.call_count == 3
@@ -155,7 +185,7 @@ class TestSliderControlDraw:
         pens = palette.PenCache(display)
         slider = SliderControl(region, 0, 255, 0, pens)
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         assert display.rectangle.call_count == 1  # only the track background
 
@@ -204,7 +234,7 @@ class TestVerticalSliderControlDraw:
         pens = palette.PenCache(display)
         slider = VerticalSliderControl(region, 0, 255, 127, pens)
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         polygon = picovector.Polygon.return_value
         vector = picovector.PicoVector.return_value
@@ -221,7 +251,7 @@ class TestVerticalSliderControlDraw:
         slider = VerticalSliderControl(region, 0, 255, 127, pens)
         slider.is_on = True
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
         assert palette.GREEN_400 in pen_calls
@@ -236,7 +266,7 @@ class TestVerticalSliderControlDraw:
         slider = VerticalSliderControl(region, 0, 255, 127, pens)
         slider.is_on = False
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
         assert palette.GRAY_700 in pen_calls
@@ -249,7 +279,7 @@ class TestVerticalSliderControlDraw:
         pens = palette.PenCache(display)
         slider = VerticalSliderControl(region, 0, 255, 0, pens)
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         polygon = picovector.Polygon.return_value
         assert polygon.rectangle.call_count == 1  # only the track
@@ -261,7 +291,7 @@ class TestVerticalSliderControlDraw:
         pens = palette.PenCache(display)
         slider = VerticalSliderControl(region, 0, 255, 255, pens)
 
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
 
         polygon = picovector.Polygon.return_value
         track_call, fill_call = polygon.rectangle.call_args_list
@@ -275,14 +305,114 @@ class TestVerticalSliderControlDraw:
         pens = palette.PenCache(display)
         slider = VerticalSliderControl(region, 0, 255, 127, pens)
 
-        slider.draw(display, theme=mock.Mock())
-        slider.draw(display, theme=mock.Mock())
+        slider.draw(display, theme=_theme())
+        slider.draw(display, theme=_theme())
 
         # PicoVector()/the track's Polygon() are each constructed once and
         # reused -- Polygon() is called 3 times total (1 track + 2 fills),
         # not 4.
         assert picovector.PicoVector.call_count == 1
         assert picovector.Polygon.call_count == 3
+
+
+class TestVerticalSliderControlBlockyDraw:
+    def test_square_radius_draws_a_plain_rect_regardless_of_style(self):
+        for style in ("smooth", "blocky"):
+            _reset_vector_mocks()
+            display = mock.Mock()
+            region = Region(0, 0, 40, 200)
+            pens = palette.PenCache(display)
+            slider = VerticalSliderControl(region, 0, 255, 0, pens)  # no fill
+
+            slider.draw(display, theme=_theme(style=style, radius="square"))
+
+            picovector.PicoVector.assert_not_called()
+            picovector.Polygon.assert_not_called()
+            assert display.rectangle.call_args_list == [mock.call(0, 0, 40, 200)]
+
+    def test_blocky_style_never_touches_picovector(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 127, pens)
+
+        slider.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        picovector.PicoVector.assert_not_called()
+        picovector.Polygon.assert_not_called()
+
+    def test_track_is_drawn_as_a_plain_rectangle_plus_corner_notches(self):
+        display = mock.Mock()
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 0, pens)  # 0 -> no fill
+
+        slider.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        # Full track rect, then 4 corner notches (chunkiest level = 1
+        # notch/corner) all erased to the theme's background pen.
+        assert display.rectangle.call_args_list[0].args == (0, 0, 40, 200)
+        assert display.rectangle.call_count == 1 + 4
+
+    def test_fill_bottom_corners_always_erase_to_background(self):
+        display = mock.Mock()
+        display.create_pen.side_effect = lambda *rgb: rgb
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 64, pens)  # partial fill
+
+        slider.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        bg_pen = _BACKGROUND_PEN_HANDLE
+        # Bottom-left/bottom-right fill notches (the last two rectangle()
+        # calls) must use the true background pen, since the fill's bottom
+        # edge always coincides with the track's own already-background-cut
+        # bottom corners regardless of fill fraction.
+        bottom_calls = display.rectangle.call_args_list[-2:]
+        pen_calls = display.set_pen.call_args_list
+        # Find the set_pen call immediately preceding each bottom notch.
+        rect_index = {id(c): i for i, c in enumerate(display.rectangle.call_args_list)}
+        for call in bottom_calls:
+            i = rect_index[id(call)]
+            assert pen_calls[i].args == (bg_pen,)
+
+    def test_fill_top_corners_erase_to_track_color_when_partially_filled(self):
+        display = mock.Mock()
+        display.create_pen.side_effect = lambda *rgb: rgb
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 64, pens)  # partial fill
+
+        slider.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        track_pen = pens.get(palette.GRAY_800)
+        # First two fill-notch rectangle() calls are the fill's top corners.
+        fill_rect_calls = display.rectangle.call_args_list[6:]  # after track rect + 4 notches + fill rect
+        top_calls = fill_rect_calls[:2]
+        pen_calls = display.set_pen.call_args_list
+        rect_index = {id(c): i for i, c in enumerate(display.rectangle.call_args_list)}
+        for call in top_calls:
+            i = rect_index[id(call)]
+            assert pen_calls[i].args == (track_pen,)
+
+    def test_fill_top_corners_erase_to_background_when_fully_filled(self):
+        display = mock.Mock()
+        display.create_pen.side_effect = lambda *rgb: rgb
+        region = Region(0, 0, 40, 200)
+        pens = palette.PenCache(display)
+        slider = VerticalSliderControl(region, 0, 255, 255, pens)  # full fill
+
+        slider.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        bg_pen = _BACKGROUND_PEN_HANDLE
+        fill_rect_calls = display.rectangle.call_args_list[6:]
+        top_calls = fill_rect_calls[:2]
+        pen_calls = display.set_pen.call_args_list
+        rect_index = {id(c): i for i, c in enumerate(display.rectangle.call_args_list)}
+        for call in top_calls:
+            i = rect_index[id(call)]
+            assert pen_calls[i].args == (bg_pen,)
 
 
 class TestPowerButtonDraw:
@@ -294,7 +424,7 @@ class TestPowerButtonDraw:
         button = PowerButton(region, pens)
         button.is_on = True
 
-        button.draw(display, theme=mock.Mock())
+        button.draw(display, theme=_theme())
 
         pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
         assert pens.get(palette.GREEN_400) in pen_calls
@@ -308,25 +438,79 @@ class TestPowerButtonDraw:
         button = PowerButton(region, pens)
         button.is_on = False
 
-        button.draw(display, theme=mock.Mock())
+        button.draw(display, theme=_theme())
 
         pen_calls = [c.args[0] for c in display.set_pen.call_args_list]
         assert pens.get(palette.GRAY_900) in pen_calls
         assert pens.get(palette.GRAY_600) in pen_calls
 
-    def test_icon_polygon_built_from_outline_and_stem(self):
+    def test_icon_polygon_built_from_outline_and_stem_at_construction(self):
+        _reset_vector_mocks()
+        region = Region(0, 0, 114, 53)
+        button = PowerButton(region, _pens())
+
+        # _bg_polygon is built lazily in draw() now (its radius depends on
+        # theme, not known at construction -- see PowerButton's own
+        # docstring), so only the icon polygon exists at this point:
+        # .path() for the outline, one .rectangle() for the stem.
+        polygon = picovector.Polygon.return_value
+        assert len(polygon.path.call_args.args) == len(icons.MDI_POWER_OUTLINE)
+        assert polygon.rectangle.call_count == 1  # stem only, no bg yet
+        assert button._bg_polygon is None
+
+    def test_bg_polygon_built_lazily_on_first_draw(self):
         _reset_vector_mocks()
         display = mock.Mock()
         region = Region(0, 0, 114, 53)
         button = PowerButton(region, _pens())
 
-        # Polygon() is a mocked class returning the same shared instance
-        # every call (see tests/conftest.py), so bg_polygon and icon_polygon
-        # are literally the same object here -- .rectangle() is called
-        # twice total (once for the background, once for the icon's stem).
+        button.draw(display, theme=_theme())
+
         polygon = picovector.Polygon.return_value
-        assert len(polygon.path.call_args.args) == len(icons.MDI_POWER_OUTLINE)
-        assert polygon.rectangle.call_count == 2  # background + stem
+        assert polygon.rectangle.call_count == 2  # stem + now the bg too
+        assert button._bg_polygon is polygon
+
+    def test_bg_polygon_cached_across_frames(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 114, 53)
+        button = PowerButton(region, _pens())
+
+        button.draw(display, theme=_theme())
+        button.draw(display, theme=_theme())
+
+        polygon = picovector.Polygon.return_value
+        assert polygon.rectangle.call_count == 2  # not rebuilt on the 2nd draw
+
+
+class TestPowerButtonBlockyDraw:
+    def test_blocky_style_draws_background_as_plain_rect_plus_notches(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 114, 53)
+        pens = palette.PenCache(display)
+        button = PowerButton(region, pens)
+        button.is_on = True
+
+        button.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        # Background polygon is never drawn via PicoVector at this level --
+        # only the icon (built once in __init__, drawn via self._vector).
+        vector = picovector.PicoVector.return_value
+        assert vector.draw.call_count == 1  # icon only, not the bg_polygon
+        assert display.rectangle.call_args_list[0].args == (0, 0, 114, 53)
+        assert display.rectangle.call_count == 1 + 4  # bg rect + 4 corner notches
+
+    def test_icon_still_drawn_via_picovector_when_blocky(self):
+        _reset_vector_mocks()
+        display = mock.Mock()
+        region = Region(0, 0, 114, 53)
+        button = PowerButton(region, _pens())
+
+        button.draw(display, theme=_theme(style="blocky", radius="small"))
+
+        vector = picovector.PicoVector.return_value
+        vector.draw.assert_called_once_with(button._icon_polygon)
 
 
 class TestDetailModalPage:
