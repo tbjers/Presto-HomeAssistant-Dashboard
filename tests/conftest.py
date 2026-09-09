@@ -24,6 +24,19 @@ mock_ntptime = type(sys)("ntptime")
 mock_ntptime.settime = mock.Mock()
 sys.modules["ntptime"] = mock_ntptime
 
+# `machine` -- only the bits dashboard/watchdog.py and dashboard/diagnostics.py
+# touch. reset_cause() defaults to PWRON_RESET (a clean boot) so tests that
+# don't care about it see no boot-reason error; individual tests override it.
+mock_machine = type(sys)("machine")
+mock_machine.WDT = mock.Mock()
+mock_machine.PWRON_RESET = 1
+mock_machine.HARD_RESET = 2
+mock_machine.WDT_RESET = 3
+mock_machine.DEEPSLEEP_RESET = 4
+mock_machine.SOFT_RESET = 5
+mock_machine.reset_cause = mock.Mock(return_value=mock_machine.PWRON_RESET)
+sys.modules["machine"] = mock_machine
+
 mock_picographics = type(sys)("picographics")
 mock_picographics.PicoGraphics = mock.create_autospec(object, instance=False)
 mock_picographics.PicoGraphics.return_value.set_pen = mock.Mock()
@@ -93,6 +106,17 @@ def mock_ntptime_module():
     """Supplies the mock/stub used for the "ntptime" module. Reset per test."""
     mock_ntptime.settime.reset_mock()
     return mock_ntptime
+
+
+@pytest.fixture
+def mock_machine_module():
+    """The stub used for the "machine" module. Reset per test, with
+    reset_cause() back to a clean power-on."""
+    mock_machine.WDT.reset_mock()
+    mock_machine.reset_cause.reset_mock()
+    mock_machine.reset_cause.return_value = mock_machine.PWRON_RESET
+    mock_machine.reset_cause.side_effect = None
+    return mock_machine
 
 
 @pytest.fixture

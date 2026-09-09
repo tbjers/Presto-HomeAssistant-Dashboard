@@ -54,6 +54,66 @@ def device_config_topic(device_id):
     return "{}/device/{}/config".format(TOPIC_ROOT, device_id)
 
 
+def device_error_topic(device_id):
+    """
+    Diagnostic error/fault channel for this device. The firmware publishes
+    here *retained* and never publishes an empty payload -- so the topic is
+    only ever cleared by an explicit zero-length retained publish from
+    Node-RED (manually, or from a flow / HA button). That's the whole
+    "errors are never cleared unless done in Node-RED" contract: it needs
+    no mechanism beyond the firmware simply never blanking it.
+
+    A single retained topic holds only the *latest* error; the durable
+    "every error ever" log is Node-RED's job (subscribe to
+    presto/device/+/error and append each message to a persistent store).
+    """
+    return "{}/device/{}/error".format(TOPIC_ROOT, device_id)
+
+
+# Error severities carried in a device-error payload's "level" field.
+ERROR_LEVEL_WARNING = "warning"
+ERROR_LEVEL_FATAL = "fatal"
+
+
+def format_device_error_payload(boot_id, seq, level, context, message):
+    """
+    Builds the JSON body for device_error_topic(). Deliberately carries no
+    timestamp: the device clock is unreliable before NTP and uses a
+    2000-based epoch, so Node-RED's own ingest time is authoritative.
+    `seq` is a monotonic per-boot counter -- it orders errors within a boot
+    and, combined with `boot_id`, lets Node-RED spot gaps where the
+    firmware's bounded outbound queue dropped one.
+    """
+    return json.dumps(
+        {
+            "boot_id": boot_id,
+            "seq": seq,
+            "level": level,
+            "context": context,
+            "message": message,
+        }
+    ).encode()
+
+
+def parse_device_error_payload(raw):
+    """
+    Decodes a device-error payload back to a dict. Never raises -- returns
+    None on anything malformed or missing a required field.
+    """
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for key in ("boot_id", "seq", "level", "context", "message"):
+        if key not in payload:
+            return None
+    return payload
+
+
 def parse_topic(topic):
     """
     Parses an entity topic of the form presto/<domain>/<slug>/<kind> into

@@ -42,6 +42,14 @@ Deliberately **not** `umqtt.robust` — see the "MQTT client" decision in
 `dashboard/mqtt_client.py`'s module docstring / the project plan for why (its
 `reconnect()` blocks the whole cooperative asyncio loop on retry).
 
+`umqtt/simple.py` itself is **unmodified**. But `dashboard/mqtt_client.py`'s
+`_BoundedMQTTClient` subclass copies `MQTTClient.wait_msg()`'s body verbatim
+from the pinned revision above, changing one line
+(`self.sock.setblocking(True)` → `self.sock.settimeout(SOCKET_TIMEOUT_S)`) so a
+stalled socket read can't freeze the run loop forever. **When re-vendoring at a
+newer commit, diff that method against the new upstream and update the copy if
+it changed.**
+
 ## MDI icons (dashboard/icons.py, dashboard/weather_icons.py)
 
 Source: https://github.com/Templarian/MaterialDesign (Apache-2.0)

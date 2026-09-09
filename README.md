@@ -40,6 +40,29 @@ these topic strings — see `dashboard/topics.py` for the full contract:
 Plus `presto/device/<device_id>/status` (this device's own LWT: `online`/`offline`) and
 `presto/bridge/status` (the Node-RED bridge's LWT), both retained.
 
+### Device error topic
+
+The firmware also publishes diagnostics to `presto/device/<device_id>/error`, **retained**:
+
+```json
+{"boot_id": "a1b2c3d4", "seq": 3, "level": "fatal", "context": "boot",
+ "message": "recovered from unexpected reset (watchdog)"}
+```
+
+`level` is `warning` or `fatal`; `context` is a short source slug (`boot`, `tmos`, …); `seq` is a
+monotonic per-boot counter (gaps mean the firmware's small outbound queue dropped a message while
+offline). There is **no timestamp** — the device clock is unreliable before NTP, so Node-RED's own
+ingest time is authoritative.
+
+The firmware **never publishes an empty payload here**, so the topic is only ever cleared by an
+explicit zero-length retained publish from Node-RED (a flow, an inject node, or an HA button). A
+single retained message only holds the *latest* error; if you want a durable "every error ever" log,
+have Node-RED subscribe to `presto/device/+/error` and append each message to a persistent store.
+
+The main thing this surfaces is otherwise-invisible lockups: a hung device can't report anything, but
+on its next boot a watchdog reset or a press of the physical reset button both land here as
+`recovered from unexpected reset (...)`.
+
 ## Repository layout
 
 - `main.py`, `config.py` — boot entry point, plus this device's `DEVICE_ID` and a minimal fallback

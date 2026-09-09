@@ -21,6 +21,7 @@ from dashboard import settings as device_settings
 from dashboard.app_manager import DashboardAppManager
 from dashboard.splash import show as show_splash
 from dashboard.theme import CompressoTheme
+from dashboard.watchdog import WatchdogFeeder
 # dashboard.app is deliberately NOT imported up here -- it transitively
 # imports dashboard.tiles -> dashboard.weather_icon -> dashboard.weather_icons,
 # a sizeable table of baked MDI icon point data that MicroPython has to
@@ -87,6 +88,18 @@ apps.add_app(SettingsApp(theme))
 # Not make_current -- this just registers "Settings" as a second row in
 # the existing hamburger/app-switcher list (tmos_apps.py's AppSwitcher),
 # alongside "Dashboard". The dashboard stays the app shown at boot.
+
+if config.WATCHDOG_ENABLED:
+    os.add_task(
+        WatchdogFeeder(config.WATCHDOG_TIMEOUT_MS).tick,
+        execution_frequency=2,
+        touch_forces_execution=False,
+    )
+# Registered on the OS directly, not via an App -- App.Tasks are removed
+# on every app switch (tmos_apps.AppManager.set_current_app), which would
+# leave the WDT unfed on the Settings page. The feeder arms the WDT on its
+# first tick (after the run loop starts), not now, so os.boot()'s blocking
+# wifi/NTP connect below can't trip it. See dashboard/watchdog.py.
 
 os.boot(wifi=True, use_ntp=True, run=True)
 # wifi=True: presto.connect() reads secrets.py's WIFI_SSID/WIFI_PASSWORD.
