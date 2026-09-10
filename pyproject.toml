@@ -1,7 +1,7 @@
 [project]
 name = "presto"
 version = "0.1.0"
-description = "Add your description here"
+description = "Home Assistant dashboard"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"
