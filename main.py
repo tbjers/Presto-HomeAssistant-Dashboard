@@ -46,17 +46,19 @@ os = OS(layers=1, full_res=True)
 # pins padding/systray_height to explicit final pixel values rather than
 # relying on Theme's automatic dpi-scaling.
 
-diagnostics.init_boot_state()
-# Reads the previous session's breadcrumb (so DashboardApp.setup() can
-# report a suspected hang) and resets it for this one. Must run before
-# apps.add_app(dash_app, ...) below, which calls DashboardApp.setup().
-
 show_splash(os)
 # Drawn straight to os.display before wifi/NTP connect (os.boot(wifi=True,
 # ...) below blocks synchronously for that) and before WindowManager/App
 # setup, so something appears immediately instead of a blank screen for
 # however long the network takes. DashboardPage's first tick overdraws it
 # once the run loop starts -- see dashboard/splash.py.
+
+diagnostics.init_boot_state()
+# Reads the previous session's breadcrumb (so DashboardApp.setup() can
+# report a suspected hang) and resets it for this one. Only has to run
+# before apps.add_app(dash_app, ...) below -- kept *after* show_splash()
+# so a slow/blocked flash read here can't produce a black screen with no
+# splash, which would be indistinguishable from an earlier hang.
 
 theme = CompressoTheme()
 saved_settings = device_settings.load()
