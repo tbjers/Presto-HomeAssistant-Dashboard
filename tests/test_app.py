@@ -11,6 +11,7 @@ from unittest import mock
 
 from tmos_apps import App
 
+from dashboard import diagnostics
 from dashboard.app import DashboardApp
 
 
@@ -69,6 +70,47 @@ class TestSetup:
         _, kwargs = mqtt_cls.call_args
         assert kwargs["user"] is None
         assert kwargs["password"] is None
+
+
+class TestDiagnosticsWiring:
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_setup_passes_boot_id_to_mqtt(self, mqtt_cls, page_cls):
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=mock.Mock())
+
+        _, kwargs = mqtt_cls.call_args
+        assert kwargs["boot_id"] == diagnostics.BOOT_ID
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_setup_registers_message_handler(self, mqtt_cls, page_cls):
+        window_manager = mock.Mock()
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=window_manager)
+
+        window_manager.os.add_message_handler.assert_called_once_with(
+            app._reporter.handle_message
+        )
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_setup_reports_suspected_hang_from_previous_run(self, mqtt_cls, page_cls):
+        diagnostics._previous_run = {"long_run": True, "uptime_s": 30000}
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=mock.Mock())
+
+        mqtt_cls.return_value.report_error.assert_called_once()
+        assert mqtt_cls.return_value.report_error.call_args.args[1] == "boot"
+
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_setup_reports_nothing_after_a_short_previous_run(self, mqtt_cls, page_cls):
+        diagnostics._previous_run = None  # reset by the autouse fixture anyway
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=mock.Mock())
+
+        mqtt_cls.return_value.report_error.assert_not_called()
 
 
 class TestPagesAndTasks:

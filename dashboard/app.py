@@ -9,6 +9,7 @@ StaticPage, and dashboard.mqtt_client for the connection lifecycle design.
 
 from tmos_apps import App
 
+from dashboard import diagnostics
 from dashboard.mqtt_client import DashboardMQTT
 from dashboard.page import DashboardPage
 from dashboard.state_store import DashboardState
@@ -27,6 +28,7 @@ class DashboardApp(App):
         self._os = None
         self._window_manager = None
         self._applied_config = None
+        self._reporter = None
 
     def setup(self, window_manager):
         self._os = window_manager.os
@@ -38,7 +40,15 @@ class DashboardApp(App):
             port=getattr(self._secrets, "MQTT_PORT", 1883),
             user=getattr(self._secrets, "MQTT_USER", None),
             password=getattr(self._secrets, "MQTT_PASSWORD", None),
+            boot_id=diagnostics.BOOT_ID,
         )
+        # Bridge TmOS's own fatal/warning messages to the retained MQTT
+        # error topic, and record why we last restarted (an unclean reset
+        # -- watchdog or the physical button -- is the only trace a hang
+        # leaves). Both just queue in DashboardMQTT until it connects.
+        self._reporter = diagnostics.DiagnosticsReporter(self._mqtt)
+        self._os.add_message_handler(self._reporter.handle_message)
+        diagnostics.report_boot_reason(self._mqtt)
         self._pages = self._build_pages(self._config.DEFAULT_SCREENS)
         self._state.on_update("device/config", self._on_config_update)
 

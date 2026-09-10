@@ -17,10 +17,12 @@ import secrets
 from tmos import OS
 from tmos_ui import WindowManager
 
+from dashboard import diagnostics
 from dashboard import settings as device_settings
+from dashboard import splash
 from dashboard.app_manager import DashboardAppManager
-from dashboard.splash import show as show_splash
 from dashboard.theme import CompressoTheme
+from dashboard.watchdog import WatchdogFeeder
 # dashboard.app is deliberately NOT imported up here -- it transitively
 # imports dashboard.tiles -> dashboard.weather_icon -> dashboard.weather_icons,
 # a sizeable table of baked MDI icon point data that MicroPython has to
@@ -44,12 +46,21 @@ os = OS(layers=1, full_res=True)
 # pins padding/systray_height to explicit final pixel values rather than
 # relying on Theme's automatic dpi-scaling.
 
-show_splash(os)
+splash.show(os, status="Starting")
 # Drawn straight to os.display before wifi/NTP connect (os.boot(wifi=True,
 # ...) below blocks synchronously for that) and before WindowManager/App
 # setup, so something appears immediately instead of a blank screen for
 # however long the network takes. DashboardPage's first tick overdraws it
-# once the run loop starts -- see dashboard/splash.py.
+# once the run loop starts -- see dashboard/splash.py. The status line
+# (splash.set_status / splash.boot_message_handler below) tracks boot
+# progress so a hang is diagnosable from the screen alone.
+
+diagnostics.init_boot_state()
+# Reads the previous session's breadcrumb (so DashboardApp.setup() can
+# report a suspected hang) and resets it for this one. Only has to run
+# before apps.add_app(dash_app, ...) below -- kept *after* show_splash()
+# so a slow/blocked flash read here can't produce a black screen with no
+# splash, which would be indistinguishable from an earlier hang.
 
 theme = CompressoTheme()
 saved_settings = device_settings.load()
@@ -72,9 +83,11 @@ apps = DashboardAppManager(wm)  # default systray_position -- app-switcher acces
 # already-current app from the hamburger menu clears the modal without
 # ever repainting the page underneath. See dashboard/app_manager.py.
 
+splash.set_status(os, "Loading modules")
 from dashboard.app import DashboardApp  # noqa: E402 -- see the top-of-file note
 from dashboard.settings_page import SettingsApp  # noqa: E402 -- see the top-of-file note
 
+splash.set_status(os, "Preparing dashboard")
 dash_app = DashboardApp(config, secrets)
 apps.add_app(dash_app, make_current=True)
 # add_app() calls dash_app.setup(wm) immediately (constructs DashboardState
@@ -87,6 +100,30 @@ apps.add_app(SettingsApp(theme))
 # Not make_current -- this just registers "Settings" as a second row in
 # the existing hamburger/app-switcher list (tmos_apps.py's AppSwitcher),
 # alongside "Dashboard". The dashboard stays the app shown at boot.
+
+if config.WATCHDOG_ENABLED:
+    os.add_task(
+        WatchdogFeeder(config.WATCHDOG_TIMEOUT_MS).tick,
+        execution_frequency=2,
+        touch_forces_execution=False,
+    )
+os.add_task(
+    diagnostics.mark_long_run_if_due,
+    execution_frequency=1 / 30,
+    touch_forces_execution=False,
+)
+# Both registered on the OS directly, not via an App -- App.Tasks are
+# removed on every app switch (tmos_apps.AppManager.set_current_app),
+# which would leave the WDT unfed on the Settings page and the long-run
+# breadcrumb never written. The WDT feeder arms on its first tick (after
+# the run loop starts), not now, so os.boot()'s blocking wifi/NTP connect
+# below can't trip it. See dashboard/watchdog.py and dashboard/diagnostics.py.
+
+os.add_message_handler(splash.boot_message_handler(os))
+# Mirrors TmOS's boot messages ("Connecting to WiFI", "Setting time") onto
+# the splash status line so a hang in os.boot()'s blocking connect is
+# visible on screen; goes inert once the run loop posts "Starting tasks".
+# Registered last so it only picks up os.boot()'s own messages.
 
 os.boot(wifi=True, use_ntp=True, run=True)
 # wifi=True: presto.connect() reads secrets.py's WIFI_SSID/WIFI_PASSWORD.

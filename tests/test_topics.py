@@ -25,6 +25,9 @@ class TestTopicBuilders:
     def test_device_config_topic(self):
         assert topics.device_config_topic("presto-office") == "presto/device/presto-office/config"
 
+    def test_device_error_topic(self):
+        assert topics.device_error_topic("presto-office") == "presto/device/presto-office/error"
+
     def test_bridge_status_topic_constant(self):
         assert topics.BRIDGE_STATUS_TOPIC == "presto/bridge/status"
 
@@ -181,6 +184,36 @@ class TestParseConfigPayload:
     def test_screen_not_an_object_returns_none(self):
         raw = json.dumps({"screens": ["nope"]}).encode()
         assert topics.parse_config_payload(raw) is None
+
+
+class TestDeviceErrorPayload:
+    def test_format_round_trips_through_parse(self):
+        raw = topics.format_device_error_payload("b1", 4, "fatal", "boot", "recovered")
+        assert isinstance(raw, bytes)
+        assert topics.parse_device_error_payload(raw) == {
+            "boot_id": "b1",
+            "seq": 4,
+            "level": "fatal",
+            "context": "boot",
+            "message": "recovered",
+        }
+
+    def test_parse_accepts_str(self):
+        raw = topics.format_device_error_payload("b1", 1, "warning", "tmos", "x").decode()
+        assert topics.parse_device_error_payload(raw)["seq"] == 1
+
+    def test_parse_malformed_json_returns_none(self):
+        assert topics.parse_device_error_payload(b"{not json") is None
+
+    def test_parse_non_object_returns_none(self):
+        assert topics.parse_device_error_payload(b"[1,2]") is None
+
+    def test_parse_missing_field_returns_none(self):
+        assert topics.parse_device_error_payload(json.dumps({"boot_id": "b", "seq": 1}).encode()) is None
+
+    def test_level_constants(self):
+        assert topics.ERROR_LEVEL_WARNING == "warning"
+        assert topics.ERROR_LEVEL_FATAL == "fatal"
 
 
 class TestParseAvailabilityPayload:

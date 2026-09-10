@@ -9,7 +9,11 @@ import pytest
 from tmos import Region
 from tmos_apps import App
 
-from dashboard.app_manager import DashboardAppManager, DashboardAppManagerAccessory
+from dashboard.app_manager import (
+    DashboardAppManager,
+    DashboardAppManagerAccessory,
+    GatedAppSwitcher,
+)
 
 
 class _FakeApp(App):
@@ -95,6 +99,34 @@ class TestOpenSwitcher:
         wm.current_page = None
 
         switcher.on_app_changed(dash)  # should not raise
+
+
+class TestGatedAppSwitcher:
+    def test_open_switcher_uses_the_gated_switcher(self):
+        wm = _window_manager()
+        manager = DashboardAppManager(wm)
+        manager.add_app(_FakeApp("Dashboard"), make_current=True)
+
+        switcher = _open_and_get_switcher(manager, wm)
+
+        assert isinstance(switcher, GatedAppSwitcher)
+
+    def test_tick_delegates_to_redraw_on_demand(self):
+        switcher = GatedAppSwitcher([])
+        region, window_manager = object(), mock.Mock()
+
+        with mock.patch("dashboard.app_manager.redraw_on_demand") as gate:
+            switcher.tick(region, window_manager)
+
+        gate.assert_called_once_with(switcher, region, window_manager)
+
+    def test_will_show_marks_needs_update(self):
+        switcher = GatedAppSwitcher([])
+        switcher.needs_update = False
+
+        switcher.will_show()
+
+        assert switcher.needs_update is True
 
 
 class TestSystrayAccessory:

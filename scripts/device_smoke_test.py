@@ -26,10 +26,14 @@ import dashboard.grid
 import dashboard.palette
 import dashboard.state_store
 import dashboard.topics
+import dashboard.diagnostics
+import dashboard.watchdog
 
 print("dashboard.grid.tile_size(480) =", dashboard.grid.tile_size(480))
 print("dashboard.palette.GRAY_950 =", dashboard.palette.GRAY_950)
 print("dashboard.topics.state_topic('light', 'lamp') =", dashboard.topics.state_topic("light", "lamp"))
+print("dashboard.diagnostics.BOOT_ID =", dashboard.diagnostics.BOOT_ID)
+print("dashboard.diagnostics.reset_reason() =", dashboard.diagnostics.reset_reason())
 
 os = OS(layers=1)
 wm = WindowManager(os)
