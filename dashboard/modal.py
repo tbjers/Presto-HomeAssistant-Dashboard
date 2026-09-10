@@ -32,6 +32,48 @@ def _clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def redraw_on_demand(page, region, window_manager):
+    """A modal ``tick()`` that only repaints when something actually changed.
+
+    Vendored ``WindowManager.show_modal_page`` (tmos_ui.py) registers a
+    modal's tick task with **no** ``execution_frequency``, so ``page.tick()``
+    runs on every run-loop iteration (100+ Hz). A full modal repaint at that
+    rate -- ``theme.clear_display`` + PicoVector rasterisation of the
+    controls + a whole-frame ``update_display()`` DMA -- then runs
+    continuously the entire time the modal is open, saturating display
+    DMA/rasterisation and starving the RP2350's servicing of the CYW43 wifi
+    co-processor.
+
+    Confirmed on hardware: a hard reset on the idle dashboard or the
+    Settings page (both redraw only on change) always reboots cleanly; a
+    hard reset while a modal is open intermittently leaves the wifi chip
+    wedged, and the next boot then hangs in firmware wifi init -- black
+    screen, USB unresponsive, recoverable only by a power cycle.
+
+    So: process touch every call (cheap; keeps slider drag smooth), but
+    only redraw + flip when a touch is active or ``page.needs_update`` is
+    set -- ``will_show()`` sets it for the first paint, and the modal's own
+    ``on_change``/``on_commit``/toggle handlers set it thereafter. An idle
+    modal then does zero rasterisation and zero display DMA, exactly like
+    the idle dashboard.
+    """
+    touch = window_manager.os.touch
+    for control in page._controls:
+        control.process_touch_state(touch)
+    page._update(window_manager.os)
+
+    if not (page.needs_update or touch.state):
+        return
+    page.needs_update = False
+
+    display = window_manager.display
+    theme = window_manager.theme
+    page._draw(display, region, theme)
+    for control in page._controls:
+        control.draw(display, theme)
+    window_manager.update_display(region)
+
+
 class SliderControl(Control):
     """
     A horizontal drag-value control.
@@ -341,6 +383,17 @@ class DetailModalPage(StaticPage):
     """
 
     title = ""  # a modal covers the systray anyway; no title needed
+
+    def tick(self, region: Region, window_manager):
+        # See redraw_on_demand() -- vendored show_modal_page ticks this at
+        # the run loop's full rate; an unconditional repaint at that rate
+        # can wedge the wifi chip on a hard reset.
+        redraw_on_demand(self, region, window_manager)
+
+    def will_show(self):
+        # show_modal_page() calls this right after setup(); mark dirty so
+        # redraw_on_demand()'s first tick actually paints.
+        self.needs_update = True
 
     def setup(self, region: Region, window_manager):
         p = window_manager.theme.padding

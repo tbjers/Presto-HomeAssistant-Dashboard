@@ -565,6 +565,86 @@ class TestDetailModalPage:
 
         close_button.on_button_up()  # should not raise
 
+    def test_will_show_marks_needs_update(self):
+        page = DetailModalPage()
+        page.needs_update = False
+
+        page.will_show()
+
+        assert page.needs_update is True
+
+    def test_tick_delegates_to_redraw_on_demand(self):
+        page = DetailModalPage()
+        region, window_manager = object(), mock.Mock()
+
+        with mock.patch("dashboard.modal.redraw_on_demand") as gate:
+            page.tick(region, window_manager)
+
+        gate.assert_called_once_with(page, region, window_manager)
+
+
+class TestRedrawOnDemand:
+    def _page(self, needs_update=False):
+        page = mock.Mock()
+        page._controls = [mock.Mock(), mock.Mock()]
+        page.needs_update = needs_update
+        return page
+
+    def _window_manager(self, touch_state):
+        window_manager = mock.Mock()
+        window_manager.os.touch.state = touch_state
+        return window_manager
+
+    def test_processes_touch_and_update_every_call_even_when_idle(self):
+        from dashboard.modal import redraw_on_demand
+
+        page = self._page()
+        wm = self._window_manager(touch_state=False)
+
+        redraw_on_demand(page, object(), wm)
+
+        for control in page._controls:
+            control.process_touch_state.assert_called_once_with(wm.os.touch)
+        page._update.assert_called_once_with(wm.os)
+
+    def test_idle_tick_does_not_draw_or_flip(self):
+        from dashboard.modal import redraw_on_demand
+
+        page = self._page()
+        wm = self._window_manager(touch_state=False)
+
+        redraw_on_demand(page, object(), wm)
+
+        page._draw.assert_not_called()
+        for control in page._controls:
+            control.draw.assert_not_called()
+        wm.update_display.assert_not_called()
+
+    def test_draws_and_flips_when_touch_is_active(self):
+        from dashboard.modal import redraw_on_demand
+
+        page = self._page()
+        wm = self._window_manager(touch_state=True)
+        region = object()
+
+        redraw_on_demand(page, region, wm)
+
+        page._draw.assert_called_once_with(wm.display, region, wm.theme)
+        for control in page._controls:
+            control.draw.assert_called_once_with(wm.display, wm.theme)
+        wm.update_display.assert_called_once_with(region)
+
+    def test_draws_once_and_clears_the_flag_when_needs_update(self):
+        from dashboard.modal import redraw_on_demand
+
+        page = self._page(needs_update=True)
+        wm = self._window_manager(touch_state=False)
+
+        redraw_on_demand(page, object(), wm)
+
+        page._draw.assert_called_once()
+        assert page.needs_update is False
+
 
 class TestLightBrightnessModal:
     def _window_manager(self):

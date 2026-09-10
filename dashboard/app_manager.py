@@ -4,7 +4,11 @@
 """
 DashboardAppManager(AppManager) -- fixes a stale-screen bug in the vendored
 AppManager.open_switcher() (tmos_apps.py) without hand-editing that file
-(see VENDORING.md).
+(see VENDORING.md). It also swaps the vendored AppSwitcher for
+GatedAppSwitcher below, so the app-switcher modal repaints only on change
+rather than at the run loop's full rate (see
+dashboard.modal.redraw_on_demand for why that matters -- a 100+ Hz
+full-screen repaint can wedge the wifi chip on a hard reset).
 
 Confirmed from source (tmos_ui.py):
 - WindowManager.clear_modal_page() clears the modal but never calls
@@ -29,6 +33,8 @@ here is at most a harmless redundant will_show() in that case.
 
 from tmos_apps import App, AppManager, AppManagerAccessory, AppSwitcher
 
+from dashboard.modal import redraw_on_demand
+
 
 class DashboardAppManagerAccessory(AppManagerAccessory):
     """
@@ -52,6 +58,24 @@ class DashboardAppManagerAccessory(AppManagerAccessory):
         button = self.AppSwitcherButton(region)
         button.on_button_up = self.on_open_switcher
         self._controls = [button]
+
+
+class GatedAppSwitcher(AppSwitcher):
+    """
+    AppSwitcher (tmos_apps.py) that only repaints on change -- vendored
+    WindowManager.show_modal_page ticks every modal at the run loop's full
+    rate, and an unconditional full-screen repaint at 100+ Hz can wedge the
+    CYW43 wifi chip on a hard reset (black-screen boot hang). See
+    dashboard.modal.redraw_on_demand for the full story. The plain
+    AppSwitcher is fully static once shown, so `touch active` alone gates
+    it correctly (its buttons only need repainting while pressed).
+    """
+
+    def tick(self, region, window_manager):
+        redraw_on_demand(self, region, window_manager)
+
+    def will_show(self):
+        self.needs_update = True
 
 
 class DashboardAppManager(AppManager):
@@ -83,6 +107,6 @@ class DashboardAppManager(AppManager):
             if underlying is not None:
                 underlying.will_show()
 
-        switcher = AppSwitcher(self.apps())
+        switcher = GatedAppSwitcher(self.apps())
         switcher.on_app_changed = select_app
         self._window_manager.show_modal_page(switcher)
