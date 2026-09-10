@@ -6,24 +6,31 @@ On-device probe for the idle-hang / device-error work. Run via
 `mpremote run scripts/device_error_smoke_test.py` -- does not touch
 flash/main.py. Mirrors scripts/mqtt_smoke_test.py's isolation approach.
 
-Checks four things host-side pytest cannot:
+IMPORTANT: if the flashed main.py has config.WATCHDOG_ENABLED = True, its
+machine.WDT survives mpremote's soft reset and this script inherits an
+unfed ~8s watchdog -- it fires mid-run and shows up host-side as a serial
+ClearCommError, not a device traceback. feed_wdt() below re-arms + feeds
+defensively, but the clean way to bench-test is: set
+config.WATCHDOG_ENABLED = False, `mpremote cp config.py :`, `mpremote
+reset`, then run this. Restore True afterwards.
 
-1. machine.reset_cause() -- what the RP2350 actually reports, and what
-   dashboard.diagnostics.reset_reason() maps it to. (Pull power mid-boot,
-   or press the reset button, then re-run to see "hard".)
+Checks host-side pytest cannot:
 
-2. How a bounded-timeout socket read fails on this port -- returns None,
-   or raises OSError (which errno)? dashboard/mqtt_client.py's
-   _BoundedMQTTClient + DISCONNECT_ERRORS assume the superset; this
-   confirms which path is real.
+1. machine.reset_cause() -- CONFIRMED binary on RP2350 (always "watchdog"
+   for a software reboot, "power" for cold boot / reset button), which is
+   why diagnostics.py uses an uptime breadcrumb instead. Also exercises
+   the breadcrumb read/reset round-trip.
+
+2. How a bounded-timeout socket read fails on this port -- CONFIRMED it
+   raises OSError(110) ETIMEDOUT.
 
 3. The retained device-error topic round-trips: publish via
    DashboardMQTT.report_error, read it back through
    topics.parse_device_error_payload.
 
-4. Keepalive: DashboardMQTT.tick() driven for ~2.5 minutes (past the
-   broker's 1.5x keepalive = 90s drop window) stays connected -- i.e. the
-   PINGREQ actually keeps the session alive with no other traffic.
+4. Keepalive: DashboardMQTT.tick() driven past the broker's ~90s drop
+   window with no other traffic. The broker's own session view (one
+   stable session, no 90s reconnect pairs) is the more reliable check.
 """
 
 import time
@@ -36,6 +43,29 @@ import secrets
 from dashboard import diagnostics, topics
 from dashboard.mqtt_client import SOCKET_TIMEOUT_S, DashboardMQTT
 from dashboard.state_store import DashboardState
+
+_wdt_feed_reported = False
+
+
+def feed_wdt():
+    """A flashed main.py arms machine.WDT (config.WATCHDOG_ENABLED); mpremote's
+    soft reset does NOT clear it, so an unfed WDT fires ~8s into any script
+    run after a main.py boot -- which shows up host-side as a serial
+    ClearCommError, not a device traceback. Re-arm + feed defensively;
+    harmless if none was running. Call before os.boot() and in every wait
+    loop. (Cleaner: set config.WATCHDOG_ENABLED = False, redeploy, reset,
+    then run bench scripts.)"""
+    global _wdt_feed_reported
+    try:
+        from machine import WDT
+
+        WDT(timeout=8388).feed()
+        outcome = "armed/fed ok"
+    except Exception as exc:  # noqa: BLE001
+        outcome = "WDT() raised: {!r}".format(exc)
+    if not _wdt_feed_reported:
+        print("  [wdt] defensive feed:", outcome)
+        _wdt_feed_reported = True
 
 
 def probe_reset_cause():
@@ -82,14 +112,18 @@ def probe_timeout_read():
 
 
 def main():
+    feed_wdt()  # BEFORE os.boot() -- ntptime.timeout alone can exceed the WDT window
     print("connecting wifi...")
     os = OS(layers=1, full_res=True)
     os.boot(wifi=True, use_ntp=True, run=False)
+    feed_wdt()
     print("wifi connected\n")
 
     probe_reset_cause()
+    feed_wdt()
     print()
     probe_timeout_read()
+    feed_wdt()
     print()
 
     print("--- 3. retained error topic round-trip ---")
@@ -112,6 +146,7 @@ def main():
 
     print("  connecting mqtt (SOCKET_TIMEOUT_S = {}s)...".format(SOCKET_TIMEOUT_S))
     for _ in range(50):
+        feed_wdt()
         mqtt.tick()
         if mqtt.connected:
             break
@@ -121,6 +156,7 @@ def main():
     mqtt._client.subscribe(error_topic.encode())
     deadline = time.ticks_add(time.ticks_ms(), 3000)
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+        feed_wdt()
         mqtt.tick()
         time.sleep_ms(100)
     for topic, msg in seen:
@@ -129,15 +165,18 @@ def main():
             print("  parsed:", topics.parse_device_error_payload(msg))
 
     print()
-    print("--- 4. keepalive: driving tick() for 150s (broker drop window is ~90s) ---")
+    print("--- 4. keepalive: driving tick() for 120s (broker drop window is ~90s) ---")
+    print("  NOTE: the broker's own session view is the more reliable check --")
+    print("  watch EMQX for one stable '{}' session over 5+ min.".format(config.DEVICE_ID))
     start = time.ticks_ms()
     drops = 0
-    while time.ticks_diff(time.ticks_ms(), start) < 150_000:
+    while time.ticks_diff(time.ticks_ms(), start) < 120_000:
+        feed_wdt()
         was_connected = mqtt.connected
         mqtt.tick()
         if was_connected and not mqtt.connected:
             drops += 1
-            print("  ! disconnect detected at t+{}s".format(time.ticks_diff(time.ticks_ms(), start) // 1000))
+            print("  ! disconnect at t+{}s".format(time.ticks_diff(time.ticks_ms(), start) // 1000))
         time.sleep_ms(100)
     print("  done: connected =", mqtt.connected, "-- disconnects during window:", drops)
     print("  (0 disconnects = PINGREQ is holding the session open)")
