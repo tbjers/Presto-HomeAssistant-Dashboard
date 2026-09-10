@@ -17,6 +17,7 @@ import secrets
 from tmos import OS
 from tmos_ui import WindowManager
 
+from dashboard import diagnostics
 from dashboard import settings as device_settings
 from dashboard.app_manager import DashboardAppManager
 from dashboard.splash import show as show_splash
@@ -44,6 +45,11 @@ os = OS(layers=1, full_res=True)
 # Also raises dpi_scale_factor from 1 to 2, which is why dashboard/theme.py
 # pins padding/systray_height to explicit final pixel values rather than
 # relying on Theme's automatic dpi-scaling.
+
+diagnostics.init_boot_state()
+# Reads the previous session's breadcrumb (so DashboardApp.setup() can
+# report a suspected hang) and resets it for this one. Must run before
+# apps.add_app(dash_app, ...) below, which calls DashboardApp.setup().
 
 show_splash(os)
 # Drawn straight to os.display before wifi/NTP connect (os.boot(wifi=True,
@@ -95,11 +101,17 @@ if config.WATCHDOG_ENABLED:
         execution_frequency=2,
         touch_forces_execution=False,
     )
-# Registered on the OS directly, not via an App -- App.Tasks are removed
-# on every app switch (tmos_apps.AppManager.set_current_app), which would
-# leave the WDT unfed on the Settings page. The feeder arms the WDT on its
-# first tick (after the run loop starts), not now, so os.boot()'s blocking
-# wifi/NTP connect below can't trip it. See dashboard/watchdog.py.
+os.add_task(
+    diagnostics.mark_long_run_if_due,
+    execution_frequency=1 / 30,
+    touch_forces_execution=False,
+)
+# Both registered on the OS directly, not via an App -- App.Tasks are
+# removed on every app switch (tmos_apps.AppManager.set_current_app),
+# which would leave the WDT unfed on the Settings page and the long-run
+# breadcrumb never written. The WDT feeder arms on its first tick (after
+# the run loop starts), not now, so os.boot()'s blocking wifi/NTP connect
+# below can't trip it. See dashboard/watchdog.py and dashboard/diagnostics.py.
 
 os.boot(wifi=True, use_ntp=True, run=True)
 # wifi=True: presto.connect() reads secrets.py's WIFI_SSID/WIFI_PASSWORD.

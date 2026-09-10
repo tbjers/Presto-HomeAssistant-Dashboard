@@ -39,7 +39,7 @@ from dashboard.state_store import DashboardState
 
 
 def probe_reset_cause():
-    print("--- 1. reset cause ---")
+    print("--- 1. reset cause + boot breadcrumb ---")
     try:
         import machine
 
@@ -49,8 +49,16 @@ def probe_reset_cause():
     else:
         print("  machine.reset_cause() =", raw)
     print("  diagnostics.reset_reason() =", diagnostics.reset_reason())
-    print("  describe_unexpected_reset() =", diagnostics.describe_unexpected_reset())
     print("  BOOT_ID =", diagnostics.BOOT_ID)
+    try:
+        with open("diag_state.json") as f:
+            print("  on-flash diag_state.json =", f.read())
+        print("  ({'long_run': true, ...} => the flashed main.py's last session likely hung)")
+    except OSError:
+        print("  on-flash diag_state.json = <none yet>")
+    # non-destructive: exercise the read/reset round-trip on a scratch path
+    diagnostics.init_boot_state("diag_smoke_test.json")
+    print("  init_boot_state round-trip previous_run() =", diagnostics.previous_run())
 
 
 def probe_timeout_read():

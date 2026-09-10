@@ -108,6 +108,21 @@ def mock_ntptime_module():
     return mock_ntptime
 
 
+@pytest.fixture(autouse=True)
+def _reset_diagnostics_state():
+    """dashboard.diagnostics keeps module-level boot-breadcrumb state
+    (_previous_run, _boot_ticks, ...). Reset it around every test so one
+    test's setup can't leak into another (test_app exercises it too)."""
+    from dashboard import diagnostics
+
+    diagnostics._path = diagnostics._BREADCRUMB_PATH
+    diagnostics._previous_run = None
+    diagnostics._boot_ticks = None
+    diagnostics._long_run_written = False
+    diagnostics._next_long_run_write_ms = 0
+    yield
+
+
 @pytest.fixture
 def mock_machine_module():
     """The stub used for the "machine" module. Reset per test, with

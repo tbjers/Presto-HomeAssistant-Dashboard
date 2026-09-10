@@ -39,37 +39,98 @@ class TestResetReason:
         assert diagnostics.reset_reason() is None
 
 
-class TestDescribeUnexpectedReset:
-    @pytest.mark.parametrize("cause,expected", [
-        ("WDT_RESET", "watchdog"),
-        ("HARD_RESET", "hard"),
-    ])
-    def test_unclean_resets_are_reported(self, mock_machine_module, cause, expected):
-        mock_machine_module.reset_cause.return_value = getattr(mock_machine_module, cause)
-        assert diagnostics.describe_unexpected_reset() == expected
+class TestInitBootState:
+    def test_reads_previous_breadcrumb_then_resets_it(self, tmp_path):
+        path = tmp_path / "diag_state.json"
+        path.write_text('{"long_run": true, "uptime_s": 7200}')
 
-    @pytest.mark.parametrize("cause", ["PWRON_RESET", "SOFT_RESET", "DEEPSLEEP_RESET"])
-    def test_clean_resets_return_none(self, mock_machine_module, cause):
-        mock_machine_module.reset_cause.return_value = getattr(mock_machine_module, cause)
-        assert diagnostics.describe_unexpected_reset() is None
+        diagnostics.init_boot_state(str(path))
+
+        assert diagnostics.previous_run() == {"long_run": True, "uptime_s": 7200}
+        # file is reset for this session
+        import json as _json
+
+        assert _json.loads(path.read_text()) == {"long_run": False}
+
+    def test_missing_breadcrumb_is_fine(self, tmp_path):
+        path = tmp_path / "nope.json"
+
+        diagnostics.init_boot_state(str(path))
+
+        assert diagnostics.previous_run() is None
+        assert path.exists()  # freshly written
+
+    def test_corrupt_breadcrumb_is_fine(self, tmp_path):
+        path = tmp_path / "diag_state.json"
+        path.write_text("{not json")
+
+        diagnostics.init_boot_state(str(path))
+
+        assert diagnostics.previous_run() is None
+
+
+class TestMarkLongRunIfDue:
+    def test_noop_before_threshold(self, tmp_path):
+        path = tmp_path / "diag_state.json"
+        diagnostics.init_boot_state(str(path))
+
+        diagnostics.mark_long_run_if_due()
+
+        import json as _json
+
+        assert _json.loads(path.read_text()) == {"long_run": False}
+
+    def test_writes_long_run_once_threshold_passed(self, tmp_path):
+        path = tmp_path / "diag_state.json"
+        diagnostics.init_boot_state(str(path))
+        # simulate ~2h of uptime
+        diagnostics._boot_ticks = time.ticks_add(time.ticks_ms(), -7_200_000)
+
+        diagnostics.mark_long_run_if_due()
+
+        import json as _json
+
+        state = _json.loads(path.read_text())
+        assert state["long_run"] is True
+        assert state["uptime_s"] >= 7_000
+
+    def test_does_not_rewrite_every_call(self, tmp_path):
+        path = tmp_path / "diag_state.json"
+        diagnostics.init_boot_state(str(path))
+        diagnostics._boot_ticks = time.ticks_add(time.ticks_ms(), -700_000)
+
+        diagnostics.mark_long_run_if_due()
+        first = path.read_text()
+        diagnostics._boot_ticks = time.ticks_add(time.ticks_ms(), -900_000)
+        diagnostics.mark_long_run_if_due()
+
+        assert path.read_text() == first  # refresh interval not elapsed
 
 
 class TestReportBootReason:
-    def test_reports_unclean_reset_as_fatal(self, mock_machine_module):
+    def test_reports_long_previous_run_as_fatal(self, mock_machine_module):
         mock_machine_module.reset_cause.return_value = mock_machine_module.WDT_RESET
+        diagnostics._previous_run = {"long_run": True, "uptime_s": 28800}
         mqtt = mock.Mock()
 
-        reason = diagnostics.report_boot_reason(mqtt)
+        uptime = diagnostics.report_boot_reason(mqtt)
 
-        assert reason == "watchdog"
-        mqtt.report_error.assert_called_once()
+        assert uptime == 28800
         args = mqtt.report_error.call_args.args
         assert args[0] == topics.ERROR_LEVEL_FATAL
         assert args[1] == "boot"
-        assert "watchdog" in args[2]
+        assert "28800" in args[2]
+        assert "watchdog" in args[2]  # reset_cause carried as context
 
-    def test_clean_reset_reports_nothing(self, mock_machine_module):
-        mock_machine_module.reset_cause.return_value = mock_machine_module.PWRON_RESET
+    def test_short_previous_run_reports_nothing(self):
+        diagnostics._previous_run = {"long_run": False}
+        mqtt = mock.Mock()
+
+        assert diagnostics.report_boot_reason(mqtt) is None
+        mqtt.report_error.assert_not_called()
+
+    def test_no_previous_run_reports_nothing(self):
+        diagnostics._previous_run = None
         mqtt = mock.Mock()
 
         assert diagnostics.report_boot_reason(mqtt) is None

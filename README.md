@@ -59,9 +59,12 @@ explicit zero-length retained publish from Node-RED (a flow, an inject node, or 
 single retained message only holds the *latest* error; if you want a durable "every error ever" log,
 have Node-RED subscribe to `presto/device/+/error` and append each message to a persistent store.
 
-The main thing this surfaces is otherwise-invisible lockups: a hung device can't report anything, but
-on its next boot a watchdog reset or a press of the physical reset button both land here as
-`recovered from unexpected reset (...)`.
+The main thing this surfaces is otherwise-invisible lockups. A frozen device can't report anything,
+but it writes a small on-flash breadcrumb once a session has been running longer than 10 minutes — so
+if the watchdog reboots a hung device (or you power-cycle it), the *next* boot notices the previous
+session ran a long time before it died and publishes
+`previous session ran ~28800s then reset (...)`. A reflash or a settings-menu reboot never trips this
+(those sessions are short).
 
 ## Repository layout
 

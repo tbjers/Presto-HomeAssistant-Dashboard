@@ -95,8 +95,8 @@ class TestDiagnosticsWiring:
 
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
-    def test_setup_reports_unclean_boot_reason(self, mqtt_cls, page_cls, mock_machine_module):
-        mock_machine_module.reset_cause.return_value = mock_machine_module.WDT_RESET
+    def test_setup_reports_suspected_hang_from_previous_run(self, mqtt_cls, page_cls):
+        diagnostics._previous_run = {"long_run": True, "uptime_s": 30000}
         app = DashboardApp(_config(), _secrets())
         app.setup(window_manager=mock.Mock())
 
@@ -105,8 +105,8 @@ class TestDiagnosticsWiring:
 
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
-    def test_setup_clean_boot_reports_nothing(self, mqtt_cls, page_cls, mock_machine_module):
-        mock_machine_module.reset_cause.return_value = mock_machine_module.PWRON_RESET
+    def test_setup_reports_nothing_after_a_short_previous_run(self, mqtt_cls, page_cls):
+        diagnostics._previous_run = None  # reset by the autouse fixture anyway
         app = DashboardApp(_config(), _secrets())
         app.setup(window_manager=mock.Mock())
 
