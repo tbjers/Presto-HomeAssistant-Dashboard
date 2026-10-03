@@ -52,6 +52,8 @@ mock_picographics.PicoGraphics.return_value.get_bounds = mock.Mock()
 mock_picographics.PicoGraphics.return_value.get_bounds.return_value = (480, 480)
 mock_picographics.PicoGraphics.return_value.measure_text = mock.Mock()
 mock_picographics.PicoGraphics.return_value.measure_text.return_value = 50
+mock_picographics.DISPLAY_GENERIC = 99
+mock_picographics.PEN_RGB565 = 7
 sys.modules["picographics"] = mock_picographics
 mock_presto.Presto.return_value.display = mock_picographics.PicoGraphics.return_value
 
@@ -73,6 +75,16 @@ mock_picovector.Polygon.return_value.circle = mock.Mock()
 mock_picovector.Polygon.return_value.rectangle = mock.Mock()
 mock_picovector.ANTIALIAS_BEST = mock.Mock()
 sys.modules["picovector"] = mock_picovector
+
+# jpegdec -- Pimoroni's JPEG decoder (dashboard/camera_page.py). JPEG(display)
+# returns a fresh Mock per call so tests can inspect open_RAM/decode calls.
+mock_jpegdec = type(sys)("jpegdec")
+mock_jpegdec.JPEG = mock.Mock()
+mock_jpegdec.JPEG_SCALE_FULL = 0
+mock_jpegdec.JPEG_SCALE_HALF = 1
+mock_jpegdec.JPEG_SCALE_QUARTER = 2
+mock_jpegdec.JPEG_SCALE_EIGHTH = 3
+sys.modules["jpegdec"] = mock_jpegdec
 
 # Needed for typing; not the object within a presto instance (that's a
 # generic recursive mock from the Presto definition above).

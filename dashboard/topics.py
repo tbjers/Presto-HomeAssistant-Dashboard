@@ -70,6 +70,14 @@ def device_error_topic(device_id):
     return "{}/device/{}/error".format(TOPIC_ROOT, device_id)
 
 
+# A camera screen in the device config: {"type": "camera", "cameras": [...]}
+# rather than a "tiles" list. Each camera is {"slug", "title", "url"}, where
+# "url" is the camera's own MJPEG stream (dashboard/camera_page.py reads it
+# directly -- the one non-MQTT path in this app). Credentials are never in
+# the config: they live only in the on-device secrets.py.
+CAMERA_SCREEN_TYPE = "camera"
+
+
 # Error severities carried in a device-error payload's "level" field.
 ERROR_LEVEL_WARNING = "warning"
 ERROR_LEVEL_FATAL = "fatal"
@@ -183,7 +191,9 @@ def parse_config_payload(raw):
     validated here: they're trusted the same way config.py's hand-authored
     DEFAULT_SCREENS already is, so a malformed tile spec fails the same way
     a config.py typo does today (a KeyError from the relevant tile builder
-    in dashboard/page.py) rather than here. Never raises -- returns None on
+    in dashboard/page.py) rather than here. A screen with
+    "type": "camera" carries a non-empty "cameras" list of {"slug", "title", "url"}
+    instead of "tiles" (see dashboard/camera_page.py). Never raises -- returns None on
     anything malformed so a single bad message can't crash the MQTT task.
     """
     try:
@@ -200,10 +210,29 @@ def parse_config_payload(raw):
     if not isinstance(screens, list) or not screens:
         return None
     for screen in screens:
-        if not isinstance(screen, dict) or not isinstance(screen.get("tiles"), list):
+        if not isinstance(screen, dict):
+            return None
+        if screen.get("type") == CAMERA_SCREEN_TYPE:
+            if not _valid_cameras(screen.get("cameras")):
+                return None
+        elif not isinstance(screen.get("tiles"), list):
             return None
 
     return payload
+
+
+def _valid_cameras(cameras):
+    # Unlike tile dicts, camera entries are validated here: a bad one would
+    # only fail later, mid-tap, deep in CameraPage, not at page build.
+    if not isinstance(cameras, list) or not cameras:
+        return False
+    for camera in cameras:
+        if not isinstance(camera, dict):
+            return False
+        for key in ("slug", "url"):
+            if not isinstance(camera.get(key), str) or not camera[key]:
+                return False
+    return True
 
 
 def parse_availability_payload(raw):

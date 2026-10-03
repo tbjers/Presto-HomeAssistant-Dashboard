@@ -17,3 +17,9 @@ MQTT_HOST = "..."
 MQTT_PORT = 1883
 MQTT_USER = "..."
 MQTT_PASSWORD = "..."
+
+# Camera screens (dashboard/camera_page.py) log in to the camera's own MJPEG
+# stream with these -- never put them in the MQTT config. Use a dedicated
+# view-only camera user. Optional: omit if you have no camera screen.
+CAMERA_USER = "..."
+CAMERA_PASSWORD = "..."
