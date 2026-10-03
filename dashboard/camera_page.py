@@ -5,8 +5,9 @@
 CameraPage(Page) -- a full-page live view of one camera at a time, reading
 the camera's own MJPEG stream (dashboard/mjpeg.py) rather than anything
 relayed over MQTT. The config topic carries only each camera's slug, title
-and stream URL; the login comes from the on-device secrets.py
-(CAMERA_USER/CAMERA_PASSWORD).
+and stream URL; the login comes from the on-device secrets.py -- per camera
+from CAMERA_CREDENTIALS keyed by slug, else the shared CAMERA_USER /
+CAMERA_PASSWORD (see credentials_from_secrets).
 
 Each frame is fitted (never cropped) into the page below a title strip, at
 the camera's true display aspect -- config "aspect", e.g. "16:9" for a
@@ -50,6 +51,29 @@ from dashboard.mjpeg import STATE_BACKOFF, MJPEGStream
 from dashboard.palette import PenCache
 from dashboard.resample import decode_shift, fit_rect, parse_aspect, resample
 
+def credentials_from_secrets(secrets):
+    """
+    Returns lookup(slug) -> (user, password) for camera logins.
+    CAMERA_CREDENTIALS = {"<slug>": ("user", "password"), ...} wins for a
+    listed slug (cameras with different passwords); otherwise the shared
+    CAMERA_USER / CAMERA_PASSWORD. (None, None) when neither is set or an
+    entry is malformed. Keyed by the config's slug, so passwords never
+    travel over MQTT.
+    """
+    per_camera = getattr(secrets, "CAMERA_CREDENTIALS", None) or {}
+    default = (getattr(secrets, "CAMERA_USER", None), getattr(secrets, "CAMERA_PASSWORD", None))
+
+    def lookup(slug):
+        if slug in per_camera:
+            entry = per_camera[slug]
+            if isinstance(entry, (tuple, list)) and len(entry) == 2:
+                return entry[0], entry[1]
+            return None, None
+        return default
+
+    return lookup
+
+
 # No new frame for this long while connected -> flag the picture as stale.
 STALE_AFTER_MS = 5000
 # The FPS readout averages over the last this-many frames.
@@ -75,13 +99,13 @@ def _framebuffer(display):
 class CameraPage(Page):
     execution_frequency = 10
 
-    def __init__(self, title, cameras, mqtt, user, password, stream_factory=MJPEGStream):
+    def __init__(self, title, cameras, mqtt, credentials, stream_factory=MJPEGStream):
         super().__init__()
         self.title = title
         self._cameras = cameras
         self._mqtt = mqtt
-        self._user = user
-        self._password = password
+        self._credentials = credentials
+        self._has_login = False
         self._stream_factory = stream_factory
         self._index = 0
         self._stream = None
@@ -157,10 +181,12 @@ class CameraPage(Page):
         self._painted_rect = None
         self._needs_full_clear = True
         self._reported_error = False
-        if not self._user:
+        user, password = self._credentials(self.camera["slug"])
+        self._has_login = bool(user)
+        if not self._has_login:
             return
         try:
-            self._stream = self._stream_factory(self.camera["url"], self._user, self._password)
+            self._stream = self._stream_factory(self.camera["url"], user, password)
         except ValueError:
             self._stream = None
             return
@@ -214,8 +240,8 @@ class CameraPage(Page):
         self._was_touched = touched
 
     def _status(self, now):
-        if not self._user:
-            return "SET CAMERA_USER IN SECRETS.PY"
+        if not self._has_login:
+            return "NO LOGIN IN SECRETS.PY"
         if self._stream is None:
             return "BAD CAMERA URL"
         if self._stream.state == STATE_BACKOFF:

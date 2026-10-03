@@ -11,7 +11,9 @@ import pytest
 from tmos import Region
 
 from dashboard import topics
-from dashboard.camera_page import STALE_AFTER_MS, CameraPage
+from types import SimpleNamespace
+
+from dashboard.camera_page import STALE_AFTER_MS, CameraPage, credentials_from_secrets
 from dashboard.mjpeg import STATE_BACKOFF, STATE_STREAMING
 
 REGION = Region(0, 52, 480, 428)
@@ -78,7 +80,7 @@ def _window_manager(touch_factory):
 def _page(user="viewer", cameras=CAMERAS):
     factory = Factory()
     mqtt = mock.Mock()
-    page = CameraPage("Cameras", cameras, mqtt, user, "pw", stream_factory=factory)
+    page = CameraPage("Cameras", cameras, mqtt, lambda slug: (user, "pw"), stream_factory=factory)
     return page, factory, mqtt
 
 
@@ -124,6 +126,55 @@ class TestLifecycle:
         page.tick(REGION, wm)
         assert factory.streams == []
         assert wm.update_display.called  # placeholder explains why
+
+
+class TestCredentials:
+    def test_per_camera_login_used_for_each_camera(self, mock_touch_factory, jpeg):
+        secrets = SimpleNamespace(
+            CAMERA_CREDENTIALS={"porch": ("p_user", "p_pw"), "yard": ("y_user", "y_pw")}
+        )
+        factory = Factory()
+        page = CameraPage(
+            "Cameras", CAMERAS, mock.Mock(), credentials_from_secrets(secrets), stream_factory=factory
+        )
+        page.setup(REGION, _window_manager(mock_touch_factory))
+        page.will_show()
+        page._open(1)
+        assert [(s.user, s.password) for s in factory.streams] == [("p_user", "p_pw"), ("y_user", "y_pw")]
+
+    def test_lookup_prefers_per_camera_entry(self):
+        lookup = credentials_from_secrets(
+            SimpleNamespace(
+                CAMERA_USER="shared",
+                CAMERA_PASSWORD="shared_pw",
+                CAMERA_CREDENTIALS={"porch": ("p_user", "p_pw")},
+            )
+        )
+        assert lookup("porch") == ("p_user", "p_pw")
+        assert lookup("yard") == ("shared", "shared_pw")
+
+    def test_lookup_shared_only(self):
+        lookup = credentials_from_secrets(SimpleNamespace(CAMERA_USER="u", CAMERA_PASSWORD="p"))
+        assert lookup("anything") == ("u", "p")
+
+    def test_lookup_nothing_configured(self):
+        assert credentials_from_secrets(SimpleNamespace())("porch") == (None, None)
+
+    def test_malformed_entry_does_not_fall_back_to_shared(self):
+        # A listed-but-broken entry is a config error to surface, not a
+        # reason to try the shared login on that camera.
+        lookup = credentials_from_secrets(
+            SimpleNamespace(CAMERA_USER="shared", CAMERA_PASSWORD="pw", CAMERA_CREDENTIALS={"porch": "oops"})
+        )
+        assert lookup("porch") == (None, None)
+
+    def test_camera_without_login_shows_message(self, mock_touch_factory, jpeg):
+        page = CameraPage("Cameras", CAMERAS, mock.Mock(), lambda slug: (None, None), stream_factory=Factory())
+        wm = _window_manager(mock_touch_factory)
+        page.setup(REGION, wm)
+        page.will_show()
+        page.tick(REGION, wm)
+        assert page._painted_status == "NO LOGIN IN SECRETS.PY"
 
 
 class TestDrawing:

@@ -21,5 +21,13 @@ MQTT_PASSWORD = "..."
 # Camera screens (dashboard/camera_page.py) log in to the camera's own MJPEG
 # stream with these -- never put them in the MQTT config. Use a dedicated
 # view-only camera user. Optional: omit if you have no camera screen.
+#
+# Shared login, used for any camera not listed in CAMERA_CREDENTIALS:
 CAMERA_USER = "..."
 CAMERA_PASSWORD = "..."
+# Per-camera logins (cameras with different passwords), keyed by each
+# camera's "slug" in the MQTT config:
+# CAMERA_CREDENTIALS = {
+#     "porch_ipc1": ("viewer", "..."),
+#     "yard_ipc2": ("viewer", "..."),
+# }

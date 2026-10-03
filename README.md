@@ -117,8 +117,8 @@ cp secrets.example.py secrets.py
 
 Fill in `WIFI_SSID` / `WIFI_PASSWORD` (read directly by the Presto firmware's own `presto.connect()`
 — don't rename these) and `MQTT_HOST` / `MQTT_PORT` / `MQTT_USER` / `MQTT_PASSWORD` for your broker.
-If you'll use a camera screen (see "Camera screens" below), also set `CAMERA_USER` /
-`CAMERA_PASSWORD`, the login the device uses for your cameras' own MJPEG streams.
+If you'll use a camera screen (see "Camera screens" below), also set the camera login(s):
+`CAMERA_USER` / `CAMERA_PASSWORD`, and/or `CAMERA_CREDENTIALS` for per-camera passwords.
 `secrets.py` is gitignored — never commit real credentials.
 
 ### 3. Declare your tiles
@@ -211,9 +211,18 @@ thing it talks to besides the MQTT broker, and no Node-RED flow is involved:
   drawn. The title strip shows the measured frame rate.
 - **Screen:** the backlight doesn't dim or turn off while a camera page is showing. Your normal
   timeouts resume when you leave it.
-- **Login:** HTTP Digest, using `CAMERA_USER` / `CAMERA_PASSWORD` from the device's `secrets.py`.
-  Never put credentials in the config message, since it's retained and readable by anyone on the
-  broker. Use a dedicated view-only camera user. Only `http://` URLs are supported.
+- **Login:** HTTP Digest, with credentials from the device's `secrets.py`. If your cameras have
+  different passwords, key them by each camera's `slug`:
+  ```python
+  CAMERA_CREDENTIALS = {
+      "porch_ipc1": ("viewer", "..."),
+      "yard_ipc2": ("viewer", "..."),
+  }
+  ```
+  Cameras not listed there use the shared `CAMERA_USER` / `CAMERA_PASSWORD`. A camera with no
+  login shows `NO LOGIN IN SECRETS.PY`. Never put credentials in the config message, since it's
+  retained and readable by anyone on the broker. Use a dedicated view-only camera user. Only
+  `http://` URLs are supported.
 - **Network:** the Presto must be able to reach the camera on port 80. If cameras sit on their own
   VLAN, add a firewall rule for the Presto. If the connection fails, the page shows
   `NO CONNECTION` and reports once to the device error topic.

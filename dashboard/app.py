@@ -10,7 +10,7 @@ StaticPage, and dashboard.mqtt_client for the connection lifecycle design.
 from tmos_apps import App
 
 from dashboard import diagnostics, topics
-from dashboard.camera_page import CameraPage
+from dashboard.camera_page import CameraPage, credentials_from_secrets
 from dashboard.mqtt_client import DashboardMQTT
 from dashboard.page import DashboardPage
 from dashboard.state_store import DashboardState
@@ -80,8 +80,7 @@ class DashboardApp(App):
                 screen.get("title", "Camera"),
                 screen["cameras"],
                 self._mqtt,
-                getattr(self._secrets, "CAMERA_USER", None),
-                getattr(self._secrets, "CAMERA_PASSWORD", None),
+                credentials_from_secrets(self._secrets),
             )
         return DashboardPage(screen.get("title", "Dashboard"), screen["tiles"], self._state, self._mqtt)
 
