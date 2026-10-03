@@ -9,7 +9,8 @@ StaticPage, and dashboard.mqtt_client for the connection lifecycle design.
 
 from tmos_apps import App
 
-from dashboard import diagnostics
+from dashboard import diagnostics, topics
+from dashboard.camera_page import CameraPage, credentials_from_secrets
 from dashboard.mqtt_client import DashboardMQTT
 from dashboard.page import DashboardPage
 from dashboard.state_store import DashboardState
@@ -69,10 +70,19 @@ class DashboardApp(App):
         return self._pages
 
     def _build_pages(self, screens):
-        return [
-            DashboardPage(screen.get("title", "Dashboard"), screen["tiles"], self._state, self._mqtt)
-            for screen in screens
-        ]
+        return [self._build_page(screen) for screen in screens]
+
+    def _build_page(self, screen):
+        if screen.get("type") == topics.CAMERA_SCREEN_TYPE:
+            # Camera logins come only from the on-device secrets.py, never
+            # from the (retained, broker-readable) config message.
+            return CameraPage(
+                screen.get("title", "Camera"),
+                screen["cameras"],
+                self._mqtt,
+                credentials_from_secrets(self._secrets),
+            )
+        return DashboardPage(screen.get("title", "Dashboard"), screen["tiles"], self._state, self._mqtt)
 
     def _on_config_update(self, payload):
         # DashboardApp.pages() is pulled once at boot, before Wi-Fi/MQTT

@@ -117,6 +117,8 @@ cp secrets.example.py secrets.py
 
 Fill in `WIFI_SSID` / `WIFI_PASSWORD` (read directly by the Presto firmware's own `presto.connect()`
 — don't rename these) and `MQTT_HOST` / `MQTT_PORT` / `MQTT_USER` / `MQTT_PASSWORD` for your broker.
+If you'll use a camera screen (see "Camera screens" below), also set the camera login(s):
+`CAMERA_USER` / `CAMERA_PASSWORD`, and/or `CAMERA_CREDENTIALS` for per-camera passwords.
 `secrets.py` is gitignored — never commit real credentials.
 
 ### 3. Declare your tiles
@@ -181,6 +183,53 @@ suffix (e.g. `"F"` or `"C"`) appended after the degree symbol — it's purely co
 payload's `temperature` field is unitless as far as the
 firmware is concerned, so send whatever unit you want displayed and label it accordingly. Republishing
 a new retained message at any time (no reboot needed) swaps the device's screens live.
+
+#### Camera screens
+
+A screen can instead be a live camera view: `"type": "camera"` with a `cameras` list instead of
+`tiles`. The device reads each camera's **MJPEG** stream directly over HTTP. This is the one
+thing it talks to besides the MQTT broker, and no Node-RED flow is involved:
+
+```json
+{
+  "title": "Porch", "type": "camera",
+  "cameras": [
+    {"slug": "porch_ipc1", "title": "Porch", "aspect": "16:9",
+     "url": "http://192.168.1.108/cgi-bin/mjpg/video.cgi?channel=1&subtype=1"}
+  ]
+}
+```
+
+- **Camera setup (Dahua):** set the substream (`subtype=1`) to **MJPEG**. The device has no H.264
+  decoder. **CIF (352x240) at up to 3 fps** is the measured sweet spot: about 0.22s to render each
+  frame, so 3 fps keeps the device busy about two-thirds of the time. D1 (704x480) looks sharper
+  but takes about 0.55s per frame, so keep it at 1 fps.
+- **Picture:** each frame is scaled to fit below the title strip, centered, and never cropped.
+  `aspect` is the picture's real shape: `"16:9"`, `"4:3"`, or a number. A D1 substream squeezes a
+  16:9 sensor into 704x480, so set `"16:9"`, otherwise the picture looks vertically stretched.
+  If you omit it, the frame's own pixel shape is used. Touch briefly stalls while each frame is
+  drawn. The title strip shows the measured frame rate.
+- **Screen:** the backlight doesn't dim or turn off while a camera page is showing. Your normal
+  timeouts resume when you leave it.
+- **Login:** HTTP Digest, with credentials from the device's `secrets.py`. If your cameras have
+  different passwords, key them by each camera's `slug`:
+  ```python
+  CAMERA_CREDENTIALS = {
+      "porch_ipc1": ("viewer", "..."),
+      "yard_ipc2": ("viewer", "..."),
+  }
+  ```
+  Cameras not listed there use the shared `CAMERA_USER` / `CAMERA_PASSWORD`. A camera with no
+  login shows `NO LOGIN IN SECRETS.PY`. Never put credentials in the config message, since it's
+  retained and readable by anyone on the broker. Use a dedicated view-only camera user. Only
+  `http://` URLs are supported.
+- **Network:** the Presto must be able to reach the camera on port 80. If cameras sit on their own
+  VLAN, add a firewall rule for the Presto. If the connection fails, the page shows
+  `NO CONNECTION` and reports once to the device error topic.
+- **Behaviour:** the stream is only open while the page is visible. Tap the picture to cycle
+  through `cameras`. If no frame arrives for 5s, the picture is marked `NO SIGNAL`. Cameras cap
+  concurrent stream connections, so other viewers (e.g. an HA MJPEG camera entity) share that
+  limit.
 
 ### 4. Wire up the Node-RED bridge
 

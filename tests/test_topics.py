@@ -185,6 +185,28 @@ class TestParseConfigPayload:
         raw = json.dumps({"screens": ["nope"]}).encode()
         assert topics.parse_config_payload(raw) is None
 
+    def _camera_screen(self, cameras):
+        return json.dumps(
+            {"screens": [{"title": "Office", "tiles": []}, {"title": "Porch", "type": "camera", "cameras": cameras}]}
+        ).encode()
+
+    def test_camera_screen_with_url_and_no_tiles(self):
+        cameras = [{"slug": "porch", "title": "Porch", "url": "http://10.0.0.5/video.cgi"}]
+        payload = topics.parse_config_payload(self._camera_screen(cameras))
+        assert payload["screens"][1]["cameras"] == cameras
+
+    def test_camera_screen_without_cameras_returns_none(self):
+        assert topics.parse_config_payload(self._camera_screen([])) is None
+
+    def test_camera_missing_url_returns_none(self):
+        assert topics.parse_config_payload(self._camera_screen([{"slug": "porch"}])) is None
+
+    def test_camera_missing_slug_returns_none(self):
+        assert topics.parse_config_payload(self._camera_screen([{"url": "http://c/"}])) is None
+
+    def test_camera_entry_not_an_object_returns_none(self):
+        assert topics.parse_config_payload(self._camera_screen(["http://c/"])) is None
+
 
 class TestDeviceErrorPayload:
     def test_format_round_trips_through_parse(self):

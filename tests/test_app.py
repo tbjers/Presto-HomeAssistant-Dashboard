@@ -262,6 +262,54 @@ class TestConfigUpdate:
         assert window_manager.remove_all_pages.call_count == 1
 
 
+    @mock.patch("dashboard.app.CameraPage")
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_camera_screen_builds_camera_page_with_secrets(self, mqtt_cls, page_cls, camera_cls):
+        app = DashboardApp(_config(), _secrets(CAMERA_USER="viewer", CAMERA_PASSWORD="pw"))
+        app.setup(window_manager=mock.Mock())
+        cameras = [{"slug": "porch", "title": "Porch", "url": "http://cam/x"}]
+
+        app._on_config_update(
+            {"screens": [{"title": "Office", "tiles": []}, {"title": "Porch", "type": "camera", "cameras": cameras}]}
+        )
+
+        title, passed_cameras, mqtt, credentials = camera_cls.call_args.args
+        assert (title, passed_cameras, mqtt) == ("Porch", cameras, mqtt_cls.return_value)
+        assert credentials("porch") == ("viewer", "pw")
+        assert app.pages() == [page_cls.return_value, camera_cls.return_value]
+
+    @mock.patch("dashboard.app.CameraPage")
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_camera_screen_without_camera_secrets_passes_none(self, mqtt_cls, page_cls, camera_cls):
+        app = DashboardApp(_config(), _secrets())
+        app.setup(window_manager=mock.Mock())
+
+        app._on_config_update(
+            {"screens": [{"title": "Porch", "type": "camera", "cameras": [{"slug": "p", "url": "http://c/"}]}]}
+        )
+
+        credentials = camera_cls.call_args.args[3]
+        assert credentials("p") == (None, None)
+
+    @mock.patch("dashboard.app.CameraPage")
+    @mock.patch("dashboard.app.DashboardPage")
+    @mock.patch("dashboard.app.DashboardMQTT")
+    def test_camera_screen_uses_per_camera_credentials(self, mqtt_cls, page_cls, camera_cls):
+        secrets = _secrets(CAMERA_CREDENTIALS={"porch": ("p_user", "p_pw"), "yard": ("y_user", "y_pw")})
+        app = DashboardApp(_config(), secrets)
+        app.setup(window_manager=mock.Mock())
+
+        app._on_config_update(
+            {"screens": [{"title": "Cams", "type": "camera", "cameras": [{"slug": "porch", "url": "http://c/"}]}]}
+        )
+
+        credentials = camera_cls.call_args.args[3]
+        assert credentials("porch") == ("p_user", "p_pw")
+        assert credentials("yard") == ("y_user", "y_pw")
+
+
 class TestUpdateTimezone:
     @mock.patch("dashboard.app.DashboardPage")
     @mock.patch("dashboard.app.DashboardMQTT")
